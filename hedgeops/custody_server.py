@@ -13,6 +13,7 @@ from hedgeops.receipt_custody import _validate
 from hedgeops.store import canonical
 
 MAX_BODY = 4096
+REQUEST_TIMEOUT_SECONDS = 5
 
 
 def _etag(record):
@@ -31,6 +32,11 @@ class CustodyDatabase:
         db.execute("PRAGMA busy_timeout=10000")
         db.execute("PRAGMA synchronous=FULL")
         return db
+
+    def healthy(self):
+        """Check the database can be read and passes SQLite quick_check."""
+        with self._connect() as db:
+            return db.execute("PRAGMA quick_check").fetchone()[0] == "ok"
 
     def read(self):
         with self._connect() as db:
@@ -66,6 +72,10 @@ def make_handler(database, bearer_token):
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(REQUEST_TIMEOUT_SECONDS)
 
         def log_message(self, format, *args):
             # Avoid logging headers, credentials, or request bodies.
@@ -112,16 +122,23 @@ def make_handler(database, bearer_token):
         def do_GET(self):
             if not self._valid_framing():
                 return
-            if self.path != "/v1/receipt":
+            if self.path not in ("/v1/receipt", "/v1/health"):
                 self._reply(404)
                 return
             if not self._authorized():
                 return
-            record = database.read()
-            if record is None:
-                self._reply(404)
-            else:
-                self._reply(200, canonical(record).encode("utf-8"), _etag(record))
+            try:
+                if self.path == "/v1/health":
+                    self._reply(200 if database.healthy() else 503)
+                    return
+                record = database.read()
+                if record is None:
+                    self._reply(404)
+                else:
+                    self._reply(200, canonical(record).encode("utf-8"), _etag(record))
+            except sqlite3.Error:
+                self.close_connection = True
+                self._reply(503)
 
         def do_PUT(self):
             if not self._valid_framing(body=True):
@@ -161,10 +178,14 @@ def make_handler(database, bearer_token):
                 self._reply(428)
                 return
             condition = if_match if if_match is not None else "*"
-            if database.cas(condition, record):
-                self._reply(204)
-            else:
-                self._reply(412)
+            try:
+                if database.cas(condition, record):
+                    self._reply(204)
+                else:
+                    self._reply(412)
+            except sqlite3.Error:
+                self.close_connection = True
+                self._reply(503)
 
     return Handler
 
