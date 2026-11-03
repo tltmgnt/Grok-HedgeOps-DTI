@@ -1,6 +1,8 @@
 """Five-agent laboratory with evidence-based arbitration and human approval gate."""
 import json
 from typing import Callable
+from hedgeops.evidence import provenance_for_reports, verification_ledger
+from hedgeops.conflicts import compare_hypotheses
 
 ROLES = {
     "temporal": "Analyze timing, sequencing, deadlines, slack, latency, and option value.",
@@ -64,8 +66,14 @@ def arbitrate(reports: dict) -> dict:
     hypotheses = {name: report["hypothesis"] for name, report in reports.items()}
     tests = sorted({test for report in reports.values()
                     for test in report["falsification_tests"]})
+    provenance = provenance_for_reports(reports)
+    comparison = compare_hypotheses(reports)
+    needs_investigation = bool(missing_evidence or low_confidence or provenance or comparison["potential_disagreement"])
     return {
-        "status": "investigate" if missing_evidence or low_confidence else "human_review",
+        "status": "investigate" if needs_investigation else "human_review",
+        "hypothesis_comparison": comparison,
+        "provenance_audit": provenance,
+        "verification_ledger": verification_ledger(reports),
         "hypotheses": hypotheses,
         "missing_evidence_agents": missing_evidence,
         "low_confidence_agents": low_confidence,
