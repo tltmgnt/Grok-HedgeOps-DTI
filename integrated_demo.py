@@ -17,7 +17,8 @@ with EventStore(path) as store:
     record_review(store, case_id, "approved_for_tracking", "demo-human",
                   "Synthetic example: permission to record a test, not deploy",
                   operator_token=os.environ.get("HEDGEOPS_OPERATOR_TOKEN"))
-    prediction_id = propose_prediction(store, case_id, "latency", 100, 10, "ms")
+    prediction_id = propose_prediction(store, case_id, "latency", 100, 10, "ms",
+                                       require_attestation=False)
     record_measurement(store, case_id, prediction_id, 108,
                        "synthetic demo measurement", "demo-human")
     print(json.dumps(replay(store, case_id), indent=2))
