@@ -99,7 +99,8 @@ class CLIFailureTests(unittest.TestCase):
 
     def test_timeout_fails_closed(self):
         code, report = self.run_fault(TimeoutError("secret timeout"))
-        self.assertIn(code, (EXIT_DENIED, EXIT_ERROR))
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertEqual(report["reason_code"], "CUSTODY_TRANSPORT_UNAVAILABLE")
         self.assertNotEqual(report["reason_code"], "READY")
 
     def test_authentication_rejection_fails_closed(self):
