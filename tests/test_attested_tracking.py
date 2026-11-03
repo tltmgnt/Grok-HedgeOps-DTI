@@ -65,10 +65,16 @@ class AttestedTrackingTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self._propose(require_attestation=True, review_registry=impostor)
 
+    def test_default_denies_unsigned_approval(self):
+        record_review(self.store, self.case_id, "approved_for_tracking", "alice",
+                      "Pilot only", operator_token=TOKEN)
+        with self.assertRaises(PermissionError):
+            self._propose()
+
     def test_legacy_mode_remains_explicitly_compatible(self):
         record_review(self.store, self.case_id, "approved_for_tracking", "alice",
                       "Pilot only", operator_token=TOKEN)
-        self.assertIn(self._propose(), replay(self.store, self.case_id)["predictions"])
+        self.assertIn(self._propose(require_attestation=False), replay(self.store, self.case_id)["predictions"])
 
 if __name__ == "__main__":
     unittest.main()
