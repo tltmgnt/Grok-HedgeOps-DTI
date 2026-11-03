@@ -155,3 +155,45 @@ class HTTPSAlertCheckpointCustodian(HTTPSReceiptCustodian):
     def _validate_record(record):
         from hedgeops.custody_alert_anchor import _record
         return _record(record)
+
+
+class HTTPSFenceAuditCustodian(HTTPSReceiptCustodian):
+    """HTTPS CAS client for independent /v1/fence-audit namespace."""
+
+    def __init__(self, url, bearer_token, *, timeout=10, opener=None):
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.path != "/v1/fence-audit" or parsed.query:
+            raise ValueError("Fence audit custody requires /v1/fence-audit")
+        super().__init__(url, bearer_token, timeout=timeout, opener=opener)
+
+    @staticmethod
+    def _validate_record(record):
+        from hedgeops.fence_audit_custody import _record
+        return _record(record)
+
+    def compare_and_swap(self, expected, new):
+        """Fence audit first publication may start above generation one."""
+        if not self._observed or expected != self._last:
+            return False
+        self._validate_record(new)
+        if expected is not None:
+            self._validate_record(expected)
+            if new["generation"] <= expected["generation"] or not self._etag:
+                return False
+        conditional = ({"If-Match": self._etag} if expected is not None
+                       else {"If-None-Match": "*"})
+        data = canonical(new).encode("utf-8")
+        try:
+            response = self._request("PUT", data=data, conditional=conditional)
+        except urllib.error.HTTPError as exc:
+            self._observed = False
+            if exc.code in (409, 412, 428):
+                return False
+            raise
+        self._observed = False
+        with response:
+            if response.geturl() != self.url:
+                raise ValueError("Redirected custody writes are forbidden")
+            if response.status not in (200, 201, 204):
+                raise ValueError("Unexpected custody write status")
+        return True
