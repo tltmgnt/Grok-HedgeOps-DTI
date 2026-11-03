@@ -40,7 +40,7 @@ def reconcile_execution_custody(authority, key, custodian):
                 raise ExecutionReconciliationError("Custody head conflicts with local audit")
         try:
             published = custodian.compare_and_swap(before, record)
-        except (OSError, TimeoutError) as exc:
+        except (OSError, TimeoutError, ValueError, TypeError, KeyError, UnicodeError) as exc:
             raise ExecutionReconciliationError(
                 "Custody publication uncertain; retry reconciliation") from exc
         after = custodian.read()
@@ -51,7 +51,7 @@ def reconcile_execution_custody(authority, key, custodian):
         if not published:
             raise ExecutionReconciliationError("Custody CAS conflict; retry reconciliation")
         raise ExecutionReconciliationError("Custody changed after publication")
-    except ExecutionCustodyError as exc:
+    except (ExecutionCustodyError, ValueError, TypeError, KeyError, UnicodeError) as exc:
         raise ExecutionReconciliationError("Invalid custody response") from exc
     except (OSError, TimeoutError) as exc:
         raise ExecutionReconciliationError("Custody unavailable; retry reconciliation") from exc
