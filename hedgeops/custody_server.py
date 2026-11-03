@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from hedgeops.admission import AdmissionController
 from hedgeops.connection_server import BoundedCustodyHTTPServer
+from hedgeops.custody_metrics import CustodyMetrics
 from hedgeops.receipt_custody import _validate
 from hedgeops.store import canonical
 
@@ -66,12 +67,13 @@ class CustodyDatabase:
             return True
 
 
-def make_handler(database, bearer_token, *, admission=None):
+def make_handler(database, bearer_token, *, admission=None, metrics=None):
     """Create a handler bound to a database and an operator-managed secret."""
     if not isinstance(bearer_token, str) or len(bearer_token) < 24:
         raise ValueError("Bearer token must be at least 24 characters")
     token_bytes = bearer_token.encode("utf-8")
     admission = admission if admission is not None else AdmissionController()
+    metrics = metrics if metrics is not None else CustodyMetrics()
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -85,6 +87,10 @@ def make_handler(database, bearer_token, *, admission=None):
             pass
 
         def _reply(self, status, payload=b"", etag=None):
+            method = self.command if self.command in ("GET", "PUT") else "GET"
+            route = ("receipt" if self.path == "/v1/receipt" else
+                     "health" if self.path == "/v1/health" else "other")
+            metrics.record(method, route, status)
             self.send_response(status)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
