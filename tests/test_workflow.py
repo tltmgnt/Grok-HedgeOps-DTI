@@ -32,7 +32,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNone(state["review"])
         record_review(self.store, self.case, "approved_for_tracking",
                       "human-analyst", "Track a bounded measurement", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
-        prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
+        prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms", require_attestation=False)
         state = record_measurement(self.store, self.case, prediction, 105,
                                    "metrics.csv", "human-analyst")
         self.assertEqual(state["predictions"][prediction]["status"], "within_tolerance")
@@ -44,12 +44,12 @@ class WorkflowTests(unittest.TestCase):
 
     def test_approval_gate(self):
         with self.assertRaises(PermissionError):
-            propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
+            propose_prediction(self.store, self.case, "latency", 100, 10, "ms", require_attestation=False)
 
     def test_rejection_blocks_tracking(self):
         record_review(self.store, self.case, "rejected", "analyst", "Not justified", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
         with self.assertRaises(PermissionError):
-            propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
+            propose_prediction(self.store, self.case, "latency", 100, 10, "ms", require_attestation=False)
 
     def test_review_cannot_be_replaced(self):
         record_review(self.store, self.case, "needs_revision", "analyst", "More data", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
@@ -58,7 +58,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_duplicate_measurement_rejected(self):
         record_review(self.store, self.case, "approved_for_tracking", "analyst", "Test", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
-        prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
+        prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms", require_attestation=False)
         record_measurement(self.store, self.case, prediction, 95, "metrics.csv", "analyst")
         with self.assertRaises(ValueError):
             record_measurement(self.store, self.case, prediction, 96, "metrics.csv", "analyst")
