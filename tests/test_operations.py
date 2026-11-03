@@ -1,4 +1,6 @@
 import tempfile
+import os
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 from hedgeops.store import EventStore
@@ -15,12 +17,15 @@ def fake_ask(system, prompt):
 
 class OperationsTests(unittest.TestCase):
     def setUp(self):
+        self.token_patch = patch.dict(os.environ, {"HEDGEOPS_OPERATOR_TOKEN": TOKEN})
+        self.token_patch.start()
         self.temp = tempfile.TemporaryDirectory()
         self.store = EventStore(str(Path(self.temp.name) / "test.sqlite3"))
         self.case_id = "recoverable-case"
         self.store.append(self.case_id, "case_created", {"problem": "Pilot?"})
 
     def tearDown(self):
+        self.token_patch.stop()
         self.store.close()
         self.temp.cleanup()
 
