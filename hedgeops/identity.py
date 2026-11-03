@@ -23,43 +23,83 @@ def _message(case_id, decision, reviewer, rationale):
 
 
 class ReviewerRegistry:
-    """Trusted local configuration: reviewer ID -> (role, secret bytes).
+    """Local trust store for reviewer keys and explicit key revocation.
 
-    Callers must provision distinct random keys (32+ bytes) securely. Registry
-    contents are never persisted in the event store.
+    Legacy entries: reviewer -> (role, secret_bytes).
+    Versioned entries: reviewer -> {"role": role, "active": key_id,
+                                    "keys": {key_id: secret_bytes},
+                                    "revoked": [key_id, ...]}.
+    Rotation retains old keys for historical verification. Revocation rejects
+    signatures made with the revoked key, including historical approvals.
     """
     def __init__(self, identities):
         self._identities = {}
         for reviewer, entry in identities.items():
             _required(reviewer, "reviewer")
-            role, key = entry
+            if isinstance(entry, dict):
+                role = entry["role"]
+                active = entry["active"]
+                keys = dict(entry["keys"])
+                revoked = frozenset(entry.get("revoked", ()))
+                if (not isinstance(active, str) or not active or
+                        not isinstance(keys, dict) or active not in keys):
+                    raise ValueError("Invalid active key ID")
+                if not all(isinstance(k, str) and k and isinstance(v, bytes)
+                           and len(v) >= 32 for k, v in keys.items()):
+                    raise ValueError("Reviewer keys must be 32+ bytes with valid IDs")
+                if not revoked.issubset(keys):
+                    raise ValueError("Unknown revoked key")
+                if active in revoked:
+                    raise ValueError("Active reviewer key cannot be revoked")
+                legacy = False
+            else:
+                role, key = entry
+                if not isinstance(key, bytes) or len(key) < 32:
+                    raise ValueError("Reviewer key must be at least 32 bytes")
+                active, keys, revoked, legacy = "legacy", {"legacy": key}, frozenset(), True
             if role not in {APPROVAL_ROLE, REVIEW_ROLE}:
                 raise ValueError("Unsupported reviewer role")
-            if not isinstance(key, bytes) or len(key) < 32:
-                raise ValueError("Reviewer key must be at least 32 bytes")
-            self._identities[reviewer] = (role, key)
+            self._identities[reviewer] = (role, active, keys, revoked, legacy)
 
-    def _authorize(self, reviewer, decision):
+    def _authorize(self, reviewer, decision, key_id=None):
         if decision not in ALLOWED_DECISIONS:
             raise ValueError("Unsupported review decision")
         if reviewer not in self._identities:
             raise PermissionError("Unknown reviewer")
-        role, key = self._identities[reviewer]
+        role, active, keys, revoked, legacy = self._identities[reviewer]
         if decision == "approved_for_tracking" and role != APPROVAL_ROLE:
             raise PermissionError("Approval requires approver role")
-        return key
+        selected = active if key_id is None else key_id
+        if selected not in keys or selected in revoked:
+            raise PermissionError("Unknown or revoked reviewer key")
+        return keys[selected], selected, legacy
 
-    def sign(self, case_id, decision, reviewer, rationale):
-        key = self._authorize(reviewer, decision)
-        return hmac.new(key, _message(case_id, decision, reviewer, rationale),
-                        hashlib.sha256).hexdigest()
+    def active_key_id(self, reviewer):
+        if reviewer not in self._identities:
+            raise PermissionError("Unknown reviewer")
+        return self._identities[reviewer][1]
 
-    def verify(self, case_id, decision, reviewer, rationale, signature):
-        key = self._authorize(reviewer, decision)
+    def sign(self, case_id, decision, reviewer, rationale, *, key_id=None):
+        key, selected, legacy = self._authorize(reviewer, decision, key_id)
+        if not legacy and selected != self.active_key_id(reviewer):
+            raise PermissionError("Only active reviewer keys may sign new reviews")
+        message = _message(case_id, decision, reviewer, rationale)
+        if not legacy:
+            message = canonical({"domain": "hedgeops.review.v2", "key_id": selected,
+                                 "message": message.decode("utf-8")}).encode("utf-8")
+        return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+    def verify(self, case_id, decision, reviewer, rationale, signature, *, key_id=None):
+        key, selected, legacy = self._authorize(reviewer, decision, key_id)
         if not isinstance(signature, str) or len(signature) != 64:
             return False
-        expected = hmac.new(key, _message(case_id, decision, reviewer, rationale),
-                            hashlib.sha256).hexdigest()
+        message = _message(case_id, decision, reviewer, rationale)
+        if not legacy:
+            if key_id is None:
+                return False
+            message = canonical({"domain": "hedgeops.review.v2", "key_id": selected,
+                                 "message": message.decode("utf-8")}).encode("utf-8")
+        expected = hmac.new(key, message, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
 
 
@@ -67,7 +107,9 @@ def record_attested_review(store, case_id, decision, reviewer, rationale,
                            *, signature, registry, operator_token):
     """Require both operator token and reviewer-specific signed authorization."""
     require_operator_token(operator_token)
-    if not registry.verify(case_id, decision, reviewer, rationale, signature):
+    key_id = registry.active_key_id(reviewer)
+    if not registry.verify(case_id, decision, reviewer, rationale, signature,
+                           key_id=None if key_id == "legacy" else key_id):
         raise PermissionError("Invalid reviewer attestation")
     state = replay(store, case_id)
     if state["analysis"] is None:
@@ -76,7 +118,9 @@ def record_attested_review(store, case_id, decision, reviewer, rationale,
         raise ValueError("Review already recorded")
     store.append(case_id, "review_recorded", {
         "decision": decision, "reviewer": reviewer, "rationale": rationale,
-        "attestation": {"scheme": "hmac-sha256-v1", "signature": signature}},
+        "attestation": {"scheme": "hmac-sha256-v1" if key_id == "legacy"
+                        else "hmac-sha256-v2", "signature": signature,
+                        **({} if key_id == "legacy" else {"key_id": key_id})}},
         expected_stream_events=state["event_count"])
     return replay(store, case_id)
 
@@ -94,8 +138,12 @@ def verify_case_review(store, case_id, registry):
     p = events[0]["payload"]
     try:
         attestation = p["attestation"]
-        return (attestation["scheme"] == "hmac-sha256-v1" and
-                registry.verify(case_id, p["decision"], p["reviewer"],
-                                p["rationale"], attestation["signature"]))
+        scheme = attestation["scheme"]
+        if scheme not in {"hmac-sha256-v1", "hmac-sha256-v2"}:
+            return False
+        key_id = None if scheme == "hmac-sha256-v1" else attestation["key_id"]
+        return registry.verify(case_id, p["decision"], p["reviewer"],
+                               p["rationale"], attestation["signature"],
+                               key_id=key_id)
     except (KeyError, TypeError, ValueError, PermissionError):
         return False
