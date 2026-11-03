@@ -60,7 +60,8 @@ def record_review(store: EventStore, case_id: str, decision: str,
     if state["review"] is not None:
         raise ValueError("Review already recorded")
     store.append(case_id, "review_recorded", {
-        "decision": decision, "reviewer": reviewer, "rationale": rationale})
+        "decision": decision, "reviewer": reviewer, "rationale": rationale},
+        expected_stream_events=state["event_count"])
     return replay(store, case_id)
 
 def propose_prediction(store: EventStore, case_id: str, metric: str,
@@ -76,7 +77,8 @@ def propose_prediction(store: EventStore, case_id: str, metric: str,
     prediction_id = str(uuid4())
     store.append(case_id, "prediction_proposed", {
         "prediction_id": prediction_id, "metric": metric, "target": target,
-        "tolerance": tolerance, "unit": unit})
+        "tolerance": tolerance, "unit": unit},
+        expected_stream_events=state["event_count"])
     return prediction_id
 
 def record_measurement(store: EventStore, case_id: str, prediction_id: str,
@@ -96,5 +98,6 @@ def record_measurement(store: EventStore, case_id: str, prediction_id: str,
               else "outside_tolerance")
     store.append(case_id, "measurement_recorded", {
         "prediction_id": prediction_id, "value": value, "source": source,
-        "reviewer": reviewer, "status": status})
+        "reviewer": reviewer, "status": status},
+        expected_stream_events=state["event_count"])
     return replay(store, case_id)
