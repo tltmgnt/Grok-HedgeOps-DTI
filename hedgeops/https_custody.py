@@ -11,6 +11,11 @@ import urllib.request
 from hedgeops.store import canonical
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class HTTPSReceiptCustodian:
     """Read and CAS a single independently hosted custody record.
 
@@ -33,7 +38,8 @@ class HTTPSReceiptCustodian:
         self._token = bearer_token
         self.timeout = timeout
         self._opener = opener or urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            _NoRedirect())
         self._last = None
         self._etag = None
         self._observed = False
