@@ -1,6 +1,6 @@
 # Phase 16 — Enforced attested tracking mode
 
-Tracking can now be configured to require independently revalidated reviewer
+Tracking now **defaults to requiring** independently revalidated reviewer
 attestations before writing a prediction event:
 
 ```python
@@ -14,10 +14,11 @@ approvals. A denied write does not append an event.
 
 ## Migration and deployment limits
 
-`require_attestation=False` remains the default to preserve existing callers
-and demos. This is **opt-in enforcement**; it does not yet guarantee that all
-applications, CLIs and external callers use the secure mode. Production code
-should explicitly supply `require_attestation=True` and a trusted registry.
+`require_attestation=True` is the default. Callers must provide a trusted
+registry, or the prediction write fails closed. Legacy callers and the offline
+integrated demo must explicitly pass `require_attestation=False` to bypass
+attestation; this is a compatibility escape hatch and **not suitable for
+production use**. Other applications may still invoke the escape hatch.
 Historical unsigned approvals cannot be promoted to signed approvals merely by
 replaying the old record. A new case or separately designed re-attestation
 workflow is required.
