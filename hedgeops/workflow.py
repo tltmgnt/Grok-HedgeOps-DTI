@@ -49,7 +49,9 @@ def create_case(store: EventStore, problem: str, ask):
     return case_id
 
 def record_review(store: EventStore, case_id: str, decision: str,
-                  reviewer: str, rationale: str):
+                  reviewer: str, rationale: str, *, operator_token=None):
+    from hedgeops.operations import require_operator_token
+    require_operator_token(operator_token)
     if decision not in {"approved_for_tracking", "rejected", "needs_revision"}:
         raise ValueError("Unsupported review decision")
     _required(reviewer, "reviewer")
