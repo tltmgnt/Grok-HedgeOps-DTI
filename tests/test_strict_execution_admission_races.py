@@ -79,7 +79,7 @@ class AdmissionRaceTests(unittest.TestCase):
     def test_execution_custody_superseded_during_gate(self):
         custody = MutableCustodian(
             {"sequence": 1, "checkpoint_sha256": "a" * 64})
-        custody.supersede_at = 3
+        custody.supersede_at = 2
         with patch("hedgeops.recovery_execution_custody_gate.verify_recovery_custody_gate",
                    return_value=True), patch(
                        "hedgeops.recovery_execution_custody_gate.verify_custodied_execution",
