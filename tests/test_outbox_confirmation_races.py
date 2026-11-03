@@ -8,6 +8,7 @@ from hedgeops.recovery_fence import RecoveryFenceAuthority
 from hedgeops.recovery_reconciliation_outbox import (
     execute_with_reconciliation_outbox, reconcile_pending_outbox)
 from hedgeops.recovery_outbox_integrity import verify_reconciliation_outbox
+from hedgeops.recovery_execution_checkpoint import create_execution_checkpoint
 
 TOKEN = "phase79-operator-token-long-enough"
 KEY = b"k" * 32
@@ -39,12 +40,13 @@ class RaceTests(unittest.TestCase):
     def run_race(self, sql, params=()):
         self.assertTrue(verify_reconciliation_outbox(self.authority))
         calls = []
+        checkpoint = create_execution_checkpoint(self.authority, KEY)
 
         def intervening_publication(*args):
             calls.append("publication")
             with self.authority._connect() as db:
                 db.execute(sql, params)
-            return {"sequence": 3}
+            return checkpoint
 
         with patch("hedgeops.recovery_reconciliation_outbox.reconcile_execution_custody",
                    side_effect=intervening_publication):
