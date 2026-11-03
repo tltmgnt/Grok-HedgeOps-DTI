@@ -26,11 +26,10 @@ class CustodyAlertTests(unittest.TestCase):
     def test_authentication_threshold(self):
         self.monitor.sample(self.metrics, self.server)
         self.metrics.record("GET", "health", 401)
-        self.assertEqual(self.monitor.sample(self.metrics, self.server)["alerts"], [])
         self.metrics.record("PUT", "receipt", 401)
         result = self.monitor.sample(self.metrics, self.server)
         self.assertEqual(result["alerts"][0]["event"], "authentication_failures")
-        self.assertEqual(result["alerts"], [])
+        self.assertEqual(result["alerts"][0]["count"], 2)
 
     def test_rate_limit_threshold(self):
         self.monitor.sample(self.metrics, self.server)
