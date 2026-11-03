@@ -34,7 +34,7 @@ class EventStore:
         )""")
         self.db.commit()
 
-    def append(self, stream, kind, payload):
+    def append(self, stream, kind, payload, expected_stream_events=None):
         if not isinstance(stream, str) or not stream.strip():
             raise ValueError("stream must be nonempty")
         if not isinstance(kind, str) or not kind.strip():
@@ -46,6 +46,11 @@ class EventStore:
         created_at = datetime.now(timezone.utc).isoformat()
         try:
             self.db.execute("BEGIN IMMEDIATE")
+            if expected_stream_events is not None:
+                actual = self.db.execute("SELECT COUNT(*) FROM events WHERE stream=?",
+                                         (stream,)).fetchone()[0]
+                if actual != expected_stream_events:
+                    raise ValueError("Concurrent modification detected; refresh case state")
             row = self.db.execute("SELECT event_hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
             previous_hash = row[0] if row else "GENESIS"
             event_hash = digest(canonical({
