@@ -32,7 +32,8 @@ def recover_analysis(store: EventStore, case_id: str, ask):
     if state["review"] is not None or state["predictions"]:
         raise ValueError("Cannot recover a case with downstream events")
     result = run_lab(state["problem"], ask)
-    store.append(case_id, "analysis_completed", {"result": result})
+    store.append(case_id, "analysis_completed", {"result": result},
+                 expected_stream_events=state["event_count"])
     return replay(store, case_id)
 
 def authorized_review(store, case_id, decision, reviewer, rationale, token,
