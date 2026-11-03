@@ -5,6 +5,9 @@ No credentials, checkpoint tags, event digests or custodian URLs are emitted.
 from hedgeops.reconciliation_readiness import reconciliation_readiness
 
 _REASONS = {
+    "no_executions": ("NO_EXECUTIONS", "No execution audit entries exist."),
+    "untracked_audit": ("UNTRACKED_AUDIT",
+                        "Execution audit entries lack confirmed outbox coverage."),
     "ready": ("READY", "Local reconciliation and external custody agree."),
     "pending": ("PENDING_RECONCILIATION",
                 "Committed recovery audit entries await custody confirmation."),
