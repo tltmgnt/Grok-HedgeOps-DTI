@@ -18,8 +18,8 @@ def verify_reconciliation_outbox(authority):
                 return False
             outbox = db.execute("SELECT sequence,event_hash,confirmed FROM recovery_reconciliation_outbox ORDER BY sequence").fetchall()
             pending_seen = False
-            for sequence, digest, confirmed in outbox:
-                if (type(sequence) is not int or sequence < 1 or sequence > len(audit)
+            for expected, (sequence, digest, confirmed) in enumerate(outbox, 1):
+                if (type(sequence) is not int or sequence != expected or sequence > len(audit)
                         or type(confirmed) is not int or confirmed not in (0, 1)
                         or digest != audit[sequence - 1][3]):
                     return False
