@@ -14,7 +14,9 @@ class StaleRecoveryFence(ValueError):
 
 
 class RecoveryFenceAuthority:
-    def __init__(self, path):
+    def __init__(self, path, *, strict=False):
+        if type(strict) is not bool:
+            raise ValueError("strict must be boolean")
         self.path = str(path)
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS recovery_fence (
@@ -25,6 +27,12 @@ class RecoveryFenceAuthority:
                 operator_digest TEXT NOT NULL,
                 previous_hash TEXT NOT NULL,
                 event_hash TEXT NOT NULL)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS recovery_fence_policy (
+                id INTEGER PRIMARY KEY CHECK(id=1),
+                strict INTEGER NOT NULL CHECK(strict=1))""")
+            if strict:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("INSERT OR IGNORE INTO recovery_fence_policy(id,strict) VALUES(1,1)")
             db.commit()
 
     def _connect(self):
@@ -37,6 +45,8 @@ class RecoveryFenceAuthority:
         """Atomically issue a strictly increasing positive generation."""
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone():
+                raise PermissionError("Strict recovery fence requires authorized issuance")
             row = db.execute(
                 "SELECT generation FROM recovery_fence WHERE id=1").fetchone()
             if row is None:
