@@ -80,8 +80,8 @@ def reconcile_pending_outbox(authority, key, custodian):
             "SELECT sequence,event_hash,confirmed "
             "FROM recovery_reconciliation_outbox ORDER BY sequence").fetchall()
         pending_seen = False
-        for seq, digest, confirmed in all_rows:
-            if seq < 1 or seq > len(audit) or digest != audit[seq - 1][3]:
+        for expected_seq, (seq, digest, confirmed) in enumerate(all_rows, 1):
+            if seq != expected_seq or seq > len(audit) or digest != audit[seq - 1][3]:
                 raise ValueError("Outbox does not match execution audit")
             if confirmed == 0:
                 pending_seen = True
