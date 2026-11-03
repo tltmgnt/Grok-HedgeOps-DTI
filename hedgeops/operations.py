@@ -41,4 +41,7 @@ def authorized_review(store, case_id, decision, reviewer, rationale, token,
     """Gate an existing review operation with an operator-held shared secret."""
     require_operator_token(token, configured_token)
     from hedgeops.workflow import record_review
-    return record_review(store, case_id, decision, reviewer, rationale)
+    # The domain boundary checks the configured secret again; a test-only
+    # configured_token override is not an authorization bypass.
+    return record_review(store, case_id, decision, reviewer, rationale,
+                         operator_token=token)
