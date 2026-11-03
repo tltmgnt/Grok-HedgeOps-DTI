@@ -106,23 +106,24 @@ class CLIFailureTests(unittest.TestCase):
     def test_authentication_rejection_fails_closed(self):
         code, report = self.run_fault(
             urllib.error.HTTPError(URL, 401, "secret token", {}, None))
-        self.assertIn(code, (EXIT_DENIED, EXIT_ERROR))
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertEqual(report["reason_code"], "CUSTODY_TRANSPORT_UNAVAILABLE")
         self.assertNotEqual(report["reason_code"], "READY")
 
     def test_malformed_json_fails_closed(self):
         code, report = self.run_fault(FakeResponse(b"{bad-json"))
-        self.assertEqual(code, EXIT_DENIED)
-        self.assertEqual(report["reason_code"], "CUSTODY_UNVERIFIED")
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertEqual(report["reason_code"], "CUSTODY_PROTOCOL_INVALID")
 
     def test_missing_strong_etag_fails_closed(self):
         code, report = self.run_fault(FakeResponse(b"{}", etag='W/"weak"'))
-        self.assertEqual(code, EXIT_DENIED)
-        self.assertEqual(report["reason_code"], "CUSTODY_UNVERIFIED")
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertEqual(report["reason_code"], "CUSTODY_PROTOCOL_INVALID")
 
     def test_oversized_response_fails_closed(self):
         code, report = self.run_fault(FakeResponse(b"x" * 4097))
-        self.assertEqual(code, EXIT_DENIED)
-        self.assertEqual(report["reason_code"], "CUSTODY_UNVERIFIED")
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertEqual(report["reason_code"], "CUSTODY_PROTOCOL_INVALID")
 
 
 if __name__ == "__main__":
