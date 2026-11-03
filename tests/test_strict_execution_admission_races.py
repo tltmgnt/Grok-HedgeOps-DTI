@@ -24,7 +24,7 @@ class MutableCustodian:
         self.read_count += 1
         if self.read_count == self.supersede_at:
             self.record = dict(self.record, sequence=self.record["sequence"] + 1)
-        return dict(self.record)
+        return None if self.record is None else dict(self.record)
 
 
 class AdmissionRaceTests(unittest.TestCase):
