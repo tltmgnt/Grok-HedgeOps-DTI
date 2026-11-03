@@ -37,7 +37,7 @@ class CLITests(unittest.TestCase):
         return code, json.loads(output.getvalue())
 
     def test_ready_exit_and_json(self):
-        code, report = self.run_cli({"ready": True, "reason_code": "READY"})
+        code, report = self.run_cli({"ready": True, "reason_code": "READY", "custody_verified": True})
         self.assertEqual(code, EXIT_READY)
         self.assertEqual(report["reason_code"], "READY")
 
