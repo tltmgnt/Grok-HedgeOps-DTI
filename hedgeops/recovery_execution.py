@@ -3,6 +3,7 @@
 Only local SQLite callbacks on the authority database are supported.
 This is not a distributed transaction or a remote recovery executor.
 """
+from hedgeops.execution_admission_policy import execution_custody_required
 from hedgeops.operations import require_operator_token
 from hedgeops.recovery_execution_audit import append_execution_event, ensure_execution_audit
 from hedgeops.recovery_custody_gate import verify_recovery_custody_gate
@@ -36,10 +37,14 @@ def execute_fenced_recovery(
             "SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone()
     if policy is None:
         raise RecoveryAdmissionError("Strict fencing policy is required")
+    with authority._connect() as db:
+        required = execution_custody_required(db)
     execution_args = (execution_checkpoint, execution_key, execution_custodian)
     if any(value is not None for value in execution_args) and not all(
             value is not None for value in execution_args):
         raise RecoveryAdmissionError("Execution custody evidence is incomplete")
+    if required and not all(value is not None for value in execution_args):
+        raise RecoveryAdmissionError("Execution custody required by policy")
     ensure_execution_audit(authority)
     if all(value is not None for value in execution_args):
         permitted = verify_recovery_execution_custody_gate(
@@ -60,6 +65,9 @@ def execute_fenced_recovery(
         if db.execute(
                 "SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone() is None:
             raise RecoveryAdmissionError("Strict fencing policy was removed")
+        if execution_custody_required(db) and not all(
+                value is not None for value in execution_args):
+            raise RecoveryAdmissionError("Execution custody required by policy")
         result = mutation(db)
         append_execution_event(db, generation)
         return result
