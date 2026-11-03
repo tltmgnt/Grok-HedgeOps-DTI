@@ -1,7 +1,8 @@
 """Readiness assessment: local outbox integrity plus independent custody evidence."""
 from hedgeops.reconciliation_health import reconciliation_health
 from hedgeops.recovery_execution_audit import execution_audit_head
-from hedgeops.recovery_execution_custody import verify_custodied_execution
+from hedgeops.recovery_execution_custody import (
+    verify_custodied_execution, validate_execution_record)
 
 
 class _ObservedCustody:
@@ -10,10 +11,17 @@ class _ObservedCustody:
     def __init__(self, custodian):
         self.custodian = custodian
         self.transport_failed = False
+        self.protocol_failed = False
 
     def read(self):
         try:
-            return self.custodian.read()
+            record = self.custodian.read()
+            if record is not None:
+                validate_execution_record(record)
+            return record
+        except (ValueError, TypeError, KeyError, UnicodeError):
+            self.protocol_failed = True
+            raise
         except OSError:
             self.transport_failed = True
             raise
@@ -50,6 +58,7 @@ def reconciliation_readiness(authority, checkpoint, key, custodian):
                 "status": ("ready" if verified and stable else
                            "local_changed" if not stable else
                            "custody_transport_unavailable" if observed.transport_failed else
+                           "custody_protocol_invalid" if observed.protocol_failed else
                            "custody_unverified"),
                 "local": after, "custody_verified": bool(verified)}
     except (ValueError, TypeError, KeyError, OSError):
