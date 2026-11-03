@@ -41,8 +41,12 @@ class SecurityAuditTests(unittest.TestCase):
         with patch.dict(os.environ, {"HEDGEOPS_OPERATOR_TOKEN": TOKEN}):
             record_review(self.store, self.case, "needs_revision",
                           "operator", "More evidence", operator_token=TOKEN)
-        self.assertNotIn(TOKEN, self.path.read_bytes().decode("utf-8", errors="ignore"))
         self.assertTrue(self.store.verify_chain())
+        # Inspect the committed event data, then inspect the finalized DB file.
+        self.assertNotIn(TOKEN, repr(self.store.history()))
+        self.store.close()
+        self.assertNotIn(TOKEN.encode("utf-8"), Path(self.path).read_bytes())
+        self.store = EventStore(self.path)
 
     def test_valid_review_survives_reopen(self):
         with patch.dict(os.environ, {"HEDGEOPS_OPERATOR_TOKEN": TOKEN}):
