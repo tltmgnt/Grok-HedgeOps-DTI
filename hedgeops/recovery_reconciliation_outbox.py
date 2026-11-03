@@ -76,6 +76,15 @@ def reconcile_pending_outbox(authority, key, custodian):
         from hedgeops.recovery_execution_audit import _verify_rows
         if not _verify_rows(audit):
             raise ValueError("Execution audit changed during publication")
+        # The published checkpoint must still describe the current audit tip.
+        # Valid ancestry alone is insufficient: a newer local commit can
+        # otherwise cause confirmation against an obsolete custody head.
+        if (not audit or type(checkpoint) is not dict or
+                type(checkpoint.get("sequence")) is not int or
+                checkpoint["sequence"] != audit[-1][0] or
+                checkpoint.get("event_hash") != audit[-1][3]):
+            raise ExecutionReconciliationError(
+                "Execution audit advanced after custody publication")
         all_rows = db.execute(
             "SELECT sequence,event_hash,confirmed "
             "FROM recovery_reconciliation_outbox ORDER BY sequence").fetchall()
