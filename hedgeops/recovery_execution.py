@@ -68,6 +68,15 @@ def execute_fenced_recovery(
         if execution_custody_required(db) and not all(
                 value is not None for value in execution_args):
             raise RecoveryAdmissionError("Execution custody required by policy")
+        if all(value is not None for value in execution_args):
+            row = db.execute(
+                "SELECT sequence,event_hash FROM recovery_execution_audit "
+                "ORDER BY sequence DESC LIMIT 1").fetchone()
+            if (row is None or
+                    type(execution_checkpoint) is not dict or
+                    row[0] != execution_checkpoint.get("sequence") or
+                    row[1] != execution_checkpoint.get("event_hash")):
+                raise RecoveryAdmissionError("Execution audit head advanced")
         result = mutation(db)
         append_execution_event(db, generation)
         return result
