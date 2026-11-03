@@ -33,6 +33,9 @@ def reconcile_execution_custody(authority, key, custodian):
                 if (before["sequence"] == record["sequence"] and
                         hmac.compare_digest(before["checkpoint_sha256"],
                                             record["checkpoint_sha256"])):
+                    confirmed = custodian.read()
+                    if confirmed is None or validate_execution_record(confirmed) != record:
+                        raise ExecutionReconciliationError("Custody changed during confirmation")
                     return checkpoint
                 raise ExecutionReconciliationError("Custody head conflicts with local audit")
         try:
