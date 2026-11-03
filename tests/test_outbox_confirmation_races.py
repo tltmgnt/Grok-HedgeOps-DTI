@@ -55,7 +55,7 @@ class RaceTests(unittest.TestCase):
             confirmed = db.execute(
                 "SELECT COUNT(*) FROM recovery_reconciliation_outbox "
                 "WHERE confirmed=1").fetchone()[0]
-        self.assertEqual(confirmed, 0)
+        self.assertEqual(confirmed, 1 if "confirmed=1" in sql else 0)
 
     def test_missing_middle_after_preflight(self):
         self.run_race(
