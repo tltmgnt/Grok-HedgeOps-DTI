@@ -23,7 +23,7 @@ class LabTests(unittest.TestCase):
         result = run_lab("Test deployment", ask)
         self.assertEqual(len(calls), 5)
         self.assertEqual(set(result["agents"]), set(ROLES))
-        self.assertEqual(result["arbitration"]["status"], "human_review")
+        self.assertEqual(result["arbitration"]["status"], "investigate")
         self.assertTrue(result["arbitration"]["human_approval_required"])
 
     def test_missing_evidence_blocks_review(self):
