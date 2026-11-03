@@ -15,7 +15,8 @@ path = os.environ.get("HEDGEOPS_DB_PATH", "data/hedgeops.sqlite3")
 with EventStore(path) as store:
     case_id = create_case(store, "Should we pilot a new deployment?", simulated_agent)
     record_review(store, case_id, "approved_for_tracking", "demo-human",
-                  "Synthetic example: permission to record a test, not deploy")
+                  "Synthetic example: permission to record a test, not deploy",
+                  operator_token=os.environ.get("HEDGEOPS_OPERATOR_TOKEN"))
     prediction_id = propose_prediction(store, case_id, "latency", 100, 10, "ms")
     record_measurement(store, case_id, prediction_id, 108,
                        "synthetic demo measurement", "demo-human")
