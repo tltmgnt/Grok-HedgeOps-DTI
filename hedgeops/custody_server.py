@@ -83,6 +83,9 @@ def make_handler(database, bearer_token):
                 self.wfile.write(payload)
 
         def _authorized(self):
+            if len(self.headers.get_all("Authorization", [])) != 1:
+                self._reply(401)
+                return False
             supplied = self.headers.get("Authorization", "")
             if not hmac.compare_digest(
                     supplied.encode("utf-8"), b"Bearer " + token_bytes):
@@ -90,7 +93,25 @@ def make_handler(database, bearer_token):
                 return False
             return True
 
+        def _valid_framing(self, *, body=False):
+            if self.headers.get_all("Transfer-Encoding", []):
+                self.close_connection = True
+                self._reply(400)
+                return False
+            lengths = self.headers.get_all("Content-Length", [])
+            if len(lengths) > 1 or (not body and lengths):
+                self.close_connection = True
+                self._reply(400)
+                return False
+            if body and len(lengths) != 1:
+                self.close_connection = True
+                self._reply(411)
+                return False
+            return True
+
         def do_GET(self):
+            if not self._valid_framing():
+                return
             if self.path != "/v1/receipt":
                 self._reply(404)
                 return
@@ -103,6 +124,13 @@ def make_handler(database, bearer_token):
                 self._reply(200, canonical(record).encode("utf-8"), _etag(record))
 
         def do_PUT(self):
+            if not self._valid_framing(body=True):
+                return
+            if (len(self.headers.get_all("If-Match", [])) > 1 or
+                    len(self.headers.get_all("If-None-Match", [])) > 1):
+                self.close_connection = True
+                self._reply(400)
+                return
             if self.path != "/v1/receipt":
                 self._reply(404)
                 return
@@ -114,6 +142,7 @@ def make_handler(database, bearer_token):
                 self._reply(400)
                 return
             if length < 1 or length > MAX_BODY:
+                self.close_connection = True
                 self._reply(413)
                 return
             raw = self.rfile.read(length)
@@ -126,7 +155,9 @@ def make_handler(database, bearer_token):
             if_match = self.headers.get("If-Match")
             if_none = self.headers.get("If-None-Match")
             if (bool(if_match) == bool(if_none) or
-                    (if_none is not None and if_none != "*")):
+                    (if_none is not None and if_none != "*") or
+                    (if_match is not None and (not if_match.startswith('"') or
+                     not if_match.endswith('"') or "," in if_match))):
                 self._reply(428)
                 return
             condition = if_match if if_match is not None else "*"
