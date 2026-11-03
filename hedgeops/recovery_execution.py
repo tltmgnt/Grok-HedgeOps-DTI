@@ -4,6 +4,7 @@ Only local SQLite callbacks on the authority database are supported.
 This is not a distributed transaction or a remote recovery executor.
 """
 from hedgeops.operations import require_operator_token
+from hedgeops.recovery_execution_audit import append_execution_event, ensure_execution_audit
 from hedgeops.recovery_custody_gate import verify_recovery_custody_gate
 from hedgeops.recovery_fence import StaleRecoveryFence
 
@@ -32,6 +33,7 @@ def execute_fenced_recovery(
             "SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone()
     if policy is None:
         raise RecoveryAdmissionError("Strict fencing policy is required")
+    ensure_execution_audit(authority)
     if not verify_recovery_custody_gate(
             authority, fence_checkpoint, fence_key, fence_custodian,
             journal, alert_checkpoint, alert_key, alert_custodian,
@@ -43,7 +45,9 @@ def execute_fenced_recovery(
         if db.execute(
                 "SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone() is None:
             raise RecoveryAdmissionError("Strict fencing policy was removed")
-        return mutation(db)
+        result = mutation(db)
+        append_execution_event(db, generation)
+        return result
 
     # The fence is rechecked under BEGIN IMMEDIATE at the mutation boundary.
     return authority.guarded_update(generation, guarded)
