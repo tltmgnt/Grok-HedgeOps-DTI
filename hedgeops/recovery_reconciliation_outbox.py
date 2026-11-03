@@ -4,7 +4,9 @@ Outbox rows are inserted in the same SQLite transaction as the mutation.
 """
 from hedgeops.recovery_execution import execute_fenced_recovery
 from hedgeops.recovery_execution_audit import execution_audit_head
-from hedgeops.recovery_execution_reconciliation import reconcile_execution_custody
+from hedgeops.recovery_execution_reconciliation import reconcile_execution_custody, ExecutionReconciliationError
+from hedgeops.recovery_execution_custody import (
+    execution_checkpoint_fingerprint, validate_execution_record)
 
 
 def ensure_reconciliation_outbox(authority):
@@ -64,6 +66,12 @@ def reconcile_pending_outbox(authority, key, custodian):
     checkpoint = reconcile_execution_custody(authority, key, custodian)
     with authority._connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        # Confirm remote custody still anchors this exact authenticated head.
+        observed = custodian.read()
+        expected = {"sequence": checkpoint["sequence"],
+                    "checkpoint_sha256": execution_checkpoint_fingerprint(checkpoint)}
+        if observed is None or validate_execution_record(observed) != expected:
+            raise ExecutionReconciliationError("Custody changed before outbox confirmation")
         rows = db.execute(
             "SELECT sequence,event_hash FROM recovery_reconciliation_outbox "
             "WHERE confirmed=0 AND sequence<=? ORDER BY sequence",
