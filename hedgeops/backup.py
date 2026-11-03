@@ -8,7 +8,8 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-from hedgeops.checkpoint_io import save_checkpoint, verify_saved_checkpoint
+from hedgeops.checkpoint_io import save_checkpoint, verify_saved_checkpoint, load_checkpoint
+from hedgeops.rollback import verify_recovery_position
 from hedgeops.store import EventStore
 
 
@@ -42,7 +43,8 @@ def backup_journal(store, destination):
     return path
 
 
-def verify_restored_journal(backup_path, checkpoint_path, registry, *, authentication_key=None):
+def verify_restored_journal(backup_path, checkpoint_path, registry, *, authentication_key=None,
+                            trusted_floor=None, floor_key=None):
     """Read-only verification of a restored backup against a trusted checkpoint."""
     path = Path(backup_path)
     if not path.is_file():
@@ -61,9 +63,16 @@ def verify_restored_journal(backup_path, checkpoint_path, registry, *, authentic
                     source.backup(target)
                 target.commit()
             with EventStore(restored) as store:
-                return store.verify_chain() and verify_saved_checkpoint(
-                    store, checkpoint_path, registry,
-                    authentication_key=authentication_key)
+                if not store.verify_chain() or not verify_saved_checkpoint(
+                        store, checkpoint_path, registry,
+                        authentication_key=authentication_key):
+                    return False
+                if trusted_floor is None:
+                    return True
+                checkpoint = load_checkpoint(checkpoint_path)
+                if authentication_key is not None:
+                    checkpoint = checkpoint["checkpoint"]
+                return verify_recovery_position(store, checkpoint, trusted_floor, floor_key)
     except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         return False
 
