@@ -11,7 +11,8 @@ LOG = logging.getLogger("hedgeops.live")
 class GrokServiceError(RuntimeError):
     pass
 
-def create_grok_ask(client=None, model=None, timeout=30.0, max_retries=1):
+def create_grok_ask(client=None, model=None, timeout=30.0, max_retries=1,
+                    max_requests=10):
     """Return a callable compatible with run_lab/create_case.
 
     Retries only transient connection/timeouts, rate limits and 5xx errors.
@@ -30,8 +31,16 @@ def create_grok_ask(client=None, model=None, timeout=30.0, max_retries=1):
     if type(max_retries) is not int or not 0 <= max_retries <= 3:
         raise ValueError("max_retries must be an integer from 0 to 3")
 
+    if type(max_requests) is not int or not 1 <= max_requests <= 100:
+        raise ValueError("max_requests must be an integer from 1 to 100")
+    used = 0
+
     def ask(system, prompt):
+        nonlocal used
         for attempt in range(max_retries + 1):
+            if used >= max_requests:
+                raise GrokServiceError("API request budget exhausted")
+            used += 1
             started = time.monotonic()
             try:
                 response = client.chat.completions.create(
