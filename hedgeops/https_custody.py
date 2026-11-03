@@ -197,3 +197,18 @@ class HTTPSFenceAuditCustodian(HTTPSReceiptCustodian):
             if response.status not in (200, 201, 204):
                 raise ValueError("Unexpected custody write status")
         return True
+
+
+class HTTPSExecutionCheckpointCustodian(HTTPSReceiptCustodian):
+    """HTTPS CAS client for /v1/execution-checkpoint custody."""
+
+    def __init__(self, url, bearer_token, *, timeout=10, opener=None):
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.path != "/v1/execution-checkpoint" or parsed.query:
+            raise ValueError("Execution custody requires /v1/execution-checkpoint")
+        super().__init__(url, bearer_token, timeout=timeout, opener=opener)
+
+    @staticmethod
+    def _validate_record(record):
+        from hedgeops.recovery_execution_custody import validate_execution_record
+        return validate_execution_record(record)
