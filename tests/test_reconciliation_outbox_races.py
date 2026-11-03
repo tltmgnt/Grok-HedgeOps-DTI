@@ -86,11 +86,11 @@ class ReconciliationRaceTests(unittest.TestCase):
             return original(expected, record)
 
         with patch.object(self.custody, "compare_and_swap", side_effect=advance):
-            checkpoint = reconcile_pending_outbox(
-                self.authority, KEY, self.custody)
-        self.assertEqual(checkpoint["sequence"], 1)
+            with self.assertRaisesRegex(
+                    ExecutionReconciliationError, "Execution audit advanced"):
+                reconcile_pending_outbox(self.authority, KEY, self.custody)
         pending = pending_reconciliations(self.authority)
-        self.assertEqual([item["sequence"] for item in pending], [2])
+        self.assertEqual([item["sequence"] for item in pending], [1, 2])
         self.assertEqual(reconcile_pending_outbox(
             self.authority, KEY, self.custody)["sequence"], 2)
         self.assertEqual(pending_reconciliations(self.authority), [])
