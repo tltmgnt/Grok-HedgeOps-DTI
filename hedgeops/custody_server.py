@@ -210,12 +210,15 @@ def make_handler(database, bearer_token, *, admission=None):
     return Handler
 
 
-def serve(database_path, bearer_token, *, host="127.0.0.1", port=8765,\n          max_connections=32):
+def serve(database_path, bearer_token, *, host="127.0.0.1", port=8765,
+          max_connections=32):
     """Blocking local-only reference server; TLS must be provided upstream."""
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise ValueError("Reference server only binds to loopback")
     database = CustodyDatabase(database_path)
-    server = BoundedCustodyHTTPServer(\n        (host, port), make_handler(database, bearer_token),\n        max_connections=max_connections)
+    server = BoundedCustodyHTTPServer(
+        (host, port), make_handler(database, bearer_token),
+        max_connections=max_connections)
     try:
         server.serve_forever()
     finally:
