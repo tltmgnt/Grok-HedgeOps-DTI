@@ -8,7 +8,7 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-from hedgeops.checkpoint_io import verify_saved_checkpoint
+from hedgeops.checkpoint_io import save_checkpoint, verify_saved_checkpoint
 from hedgeops.store import EventStore
 
 
@@ -65,3 +65,34 @@ def verify_restored_journal(backup_path, checkpoint_path, registry):
                     store, checkpoint_path, registry)
     except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         return False
+
+
+def backup_with_checkpoint(store, case_id, registry, backup_path, checkpoint_path):
+    """Create a snapshot and a checkpoint derived from that exact snapshot.
+
+    Both destinations must be new files. A failure after backup publication
+    may leave an unpaired backup, which must not be treated as verified.
+    The caller must preserve the checkpoint in independently trusted storage.
+    """
+    backup = Path(backup_path)
+    checkpoint = Path(checkpoint_path)
+    if backup.resolve() == checkpoint.resolve():
+        raise ValueError("Backup and checkpoint destinations must differ")
+    if (backup.exists() or backup.is_symlink() or
+            checkpoint.exists() or checkpoint.is_symlink()):
+        raise FileExistsError("Backup and checkpoint destinations must be unused")
+    backup_journal(store, backup)
+    # Open a private copy: EventStore initialization must not alter the
+    # published backup, and concurrent live writes are irrelevant.
+    with tempfile.TemporaryDirectory() as directory:
+        restored = Path(directory) / "snapshot.sqlite3"
+        with closing(sqlite3.connect(restored)) as target:
+            with closing(sqlite3.connect(backup.resolve().as_uri() + "?mode=ro",
+                                         uri=True)) as source:
+                source.backup(target)
+            target.commit()
+        with EventStore(restored) as snapshot:
+            save_checkpoint(snapshot, case_id, registry, checkpoint)
+    if not verify_restored_journal(backup, checkpoint, registry):
+        raise ValueError("Backup/checkpoint verification failed")
+    return backup, checkpoint
