@@ -9,6 +9,7 @@ import json
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from hedgeops.admission import AdmissionController
 from hedgeops.receipt_custody import _validate
 from hedgeops.store import canonical
 
@@ -64,11 +65,12 @@ class CustodyDatabase:
             return True
 
 
-def make_handler(database, bearer_token):
+def make_handler(database, bearer_token, *, admission=None):
     """Create a handler bound to a database and an operator-managed secret."""
     if not isinstance(bearer_token, str) or len(bearer_token) < 24:
         raise ValueError("Bearer token must be at least 24 characters")
     token_bytes = bearer_token.encode("utf-8")
+    admission = admission if admission is not None else AdmissionController()
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -187,6 +189,23 @@ def make_handler(database, bearer_token):
                 self.close_connection = True
                 self._reply(503)
 
+    # Guard requests before database access; close rejected connections to
+    # prevent unread request bodies from being interpreted as new requests.
+    for method in ("do_GET", "do_PUT"):
+        original = getattr(Handler, method)
+
+        def guarded(self, _original=original):
+            result = admission.enter(self.client_address[0])
+            if result != "ok":
+                self.close_connection = True
+                self._reply(429 if result == "rate" else 503)
+                return
+            try:
+                return _original(self)
+            finally:
+                admission.leave()
+
+        setattr(Handler, method, guarded)
     return Handler
 
 
