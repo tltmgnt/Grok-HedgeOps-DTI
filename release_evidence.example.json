@@ -1,0 +1,8 @@
+{
+  "offline_ci_passed": true,
+  "live_provider_tested": false,
+  "authorization_reviewed": false,
+  "data_protection_reviewed": false,
+  "concurrency_reviewed": false,
+  "maintainer_approved": false
+}
