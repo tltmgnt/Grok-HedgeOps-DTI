@@ -16,6 +16,8 @@ _REASONS = {
                             "The supplied checkpoint does not match the local head."),
     "custody_transport_unavailable": ("CUSTODY_TRANSPORT_UNAVAILABLE",
                                       "Independent custody could not be reached."),
+    "custody_protocol_invalid": ("CUSTODY_PROTOCOL_INVALID",
+                                 "Custody response validation failed."),
     "custody_unverified": ("CUSTODY_UNVERIFIED",
                            "Independent custody confirmation could not be established."),
     "local_changed": ("LOCAL_STATE_CHANGED",
