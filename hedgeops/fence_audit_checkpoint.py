@@ -51,14 +51,32 @@ def create_fence_audit_checkpoint(authority, key):
         db.execute("BEGIN")
         if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             raise ValueError("Fence database integrity check failed")
-        if not authority.verify_issuance_audit():
-            raise ValueError("Fence issuance audit invalid")
-        row = db.execute(
-            "SELECT generation,event_hash FROM recovery_fence_issuance "
-            "ORDER BY generation DESC LIMIT 1").fetchone()
-        if row is None:
+        rows = db.execute(
+            "SELECT generation,operator_digest,previous_hash,event_hash "
+            "FROM recovery_fence_issuance ORDER BY generation").fetchall()
+        if not rows:
             raise ValueError("No audited fencing issuance to checkpoint")
-        body = _body(*row)
+        previous_hash = "0" * 64
+        last_generation = 0
+        for generation, operator_digest, predecessor, event_hash in rows:
+            if (type(generation) is not int or generation <= last_generation or
+                    predecessor != previous_hash or
+                    not isinstance(operator_digest, str) or
+                    _HEX.fullmatch(operator_digest) is None or
+                    not isinstance(event_hash, str) or
+                    _HEX.fullmatch(event_hash) is None):
+                raise ValueError("Fence issuance audit invalid")
+            expected = hashlib.sha256(
+                ("hedgeops-fence-issuance-v1:" + str(generation) + ":" +
+                 operator_digest + ":" + predecessor).encode()).hexdigest()
+            if not hmac.compare_digest(expected, event_hash):
+                raise ValueError("Fence issuance audit invalid")
+            last_generation, previous_hash = generation, event_hash
+        current = db.execute(
+            "SELECT generation FROM recovery_fence WHERE id=1").fetchone()
+        if current is None or current[0] < last_generation:
+            raise ValueError("Fence generation behind audit")
+        body = _body(last_generation, previous_hash)
     return {**body, "authentication_tag": _tag(body, key)}
 
 
