@@ -1,0 +1,5 @@
+# Phase 59 — Strict-admission race tests
+
+`tests/test_strict_execution_admission_races.py` adds deterministic tests for: enabling the persisted strict execution-custody policy after the initial admission read but before the fenced mutation; simultaneous legacy two-namespace attempts after activation; execution-custody supersession during the three-namespace gate; missing execution custody; and ensuring complete evidence selects the three-namespace verifier rather than the legacy gate.
+
+The policy activation test coordinates threads with events instead of relying on timing sleeps. The executor checks the persistent policy inside the same local SQLite transaction as the mutation, preventing a missing-custody request from committing if the policy was activated during preflight. Custody supersession tests cover the double-read gate, not a distributed atomic lease. The external custody state can still change after verification and before local commit. Run `python release_check.py --verbose` and verify the repository CI matrix.
