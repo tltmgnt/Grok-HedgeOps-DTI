@@ -68,7 +68,7 @@ def record_review(store: EventStore, case_id: str, decision: str,
 
 def propose_prediction(store: EventStore, case_id: str, metric: str,
                        target: float, tolerance: float, unit: str, *,
-                       review_registry=None, require_attestation=False):
+                       review_registry=None, require_attestation=True):
     _required(metric, "metric")
     _required(unit, "unit")
     if any(type(x) not in (int, float) or not isfinite(x)
