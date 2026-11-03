@@ -67,7 +67,7 @@ def record_review(store: EventStore, case_id: str, decision: str,
     return replay(store, case_id)
 
 def propose_prediction(store: EventStore, case_id: str, metric: str,
-                       target: float, tolerance: float, unit: str):
+                       target: float, tolerance: float, unit: str, *,\n                       review_registry=None, require_attestation=False):
     _required(metric, "metric")
     _required(unit, "unit")
     if any(type(x) not in (int, float) or not isfinite(x)
@@ -76,7 +76,7 @@ def propose_prediction(store: EventStore, case_id: str, metric: str,
     state = replay(store, case_id)
     if not state["review"] or state["review"]["decision"] != "approved_for_tracking":
         raise PermissionError("Explicit human approval for tracking is required")
-    prediction_id = str(uuid4())
+    if require_attestation:\n        if review_registry is None:\n            raise PermissionError("Attested tracking requires a reviewer registry")\n        from hedgeops.identity import verify_case_review\n        if not verify_case_review(store, case_id, review_registry):\n            raise PermissionError("Tracking requires a verified signed approval")\n    prediction_id = str(uuid4())
     store.append(case_id, "prediction_proposed", {
         "prediction_id": prediction_id, "metric": metric, "target": target,
         "tolerance": tolerance, "unit": unit},
