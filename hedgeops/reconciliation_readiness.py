@@ -4,6 +4,24 @@ from hedgeops.recovery_execution_audit import execution_audit_head
 from hedgeops.recovery_execution_custody import verify_custodied_execution
 
 
+class _ObservedCustody:
+    """Observe transport failures without changing the custody verifier API."""
+
+    def __init__(self, custodian):
+        self.custodian = custodian
+        self.transport_failed = False
+
+    def read(self):
+        try:
+            return self.custodian.read()
+        except OSError:
+            self.transport_failed = True
+            raise
+
+    def compare_and_swap(self, *args):
+        raise RuntimeError("Readiness cannot publish custody")
+
+
 def reconciliation_readiness(authority, checkpoint, key, custodian):
     """Fail closed unless local outbox and independently held head agree.
 
@@ -21,7 +39,8 @@ def reconciliation_readiness(authority, checkpoint, key, custodian):
                 checkpoint.get("event_hash") != head["event_hash"]):
             return {"ready": False, "status": "checkpoint_mismatch",
                     "local": local, "custody_verified": False}
-        verified = verify_custodied_execution(authority, checkpoint, key, custodian)
+        observed = _ObservedCustody(custodian)
+        verified = verify_custodied_execution(authority, checkpoint, key, observed)
         # A concurrent local commit can invalidate a successful remote check.
         after = reconciliation_health(authority)
         final_head = execution_audit_head(authority)
@@ -29,7 +48,9 @@ def reconciliation_readiness(authority, checkpoint, key, custodian):
                   final_head == head)
         return {"ready": bool(verified and stable),
                 "status": ("ready" if verified and stable else
-                           "local_changed" if not stable else "custody_unverified"),
+                           "local_changed" if not stable else
+                           "custody_transport_unavailable" if observed.transport_failed else
+                           "custody_unverified"),
                 "local": after, "custody_verified": bool(verified)}
     except (ValueError, TypeError, KeyError, OSError):
         return {"ready": False, "status": "custody_unverified",
