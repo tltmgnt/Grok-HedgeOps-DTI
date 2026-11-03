@@ -5,6 +5,7 @@ Backup files and trusted checkpoints must be stored separately by operators.
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from hedgeops.checkpoint_io import verify_saved_checkpoint
@@ -22,7 +23,7 @@ def backup_journal(store, destination):
     try:
         fd, temp_name = tempfile.mkstemp(prefix=".hedgeops-backup-", dir=str(path.parent))
         os.close(fd)
-        with sqlite3.connect(temp_name) as target:
+        with closing(sqlite3.connect(temp_name)) as target:
             store.db.backup(target)
             if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("SQLite backup integrity check failed")
@@ -48,19 +49,17 @@ def verify_restored_journal(backup_path, checkpoint_path, registry):
         return False
     try:
         # SQLite URI mode=ro avoids silently creating missing databases.
-        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 return False
-            events = db.execute(
-                "SELECT seq,event_id,stream,kind,payload,created_at,previous_hash,event_hash "
-                "FROM events ORDER BY seq").fetchall()
         # EventStore opens in read/write mode; verify against a separate
         # temporary copy so the original backup is never modified.
         with tempfile.TemporaryDirectory() as directory:
             restored = Path(directory) / "restored.sqlite3"
-            with sqlite3.connect(restored) as target:
-                with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as source:
+            with closing(sqlite3.connect(restored)) as target:
+                with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as source:
                     source.backup(target)
+                target.commit()
             with EventStore(restored) as store:
                 return store.verify_chain() and verify_saved_checkpoint(
                     store, checkpoint_path, registry)
