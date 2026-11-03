@@ -1,4 +1,6 @@
 import tempfile
+import os
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 from hedgeops.store import EventStore
@@ -12,12 +14,15 @@ def fake_ask(system, problem):
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
+        self.token_patch = patch.dict(os.environ, {"HEDGEOPS_OPERATOR_TOKEN": "test-token-with-at-least-24-characters"})
+        self.token_patch.start()
         self.temp = tempfile.TemporaryDirectory()
         self.path = str(Path(self.temp.name) / "cases.sqlite3")
         self.store = EventStore(self.path)
         self.case = create_case(self.store, "Test a deployment", fake_ask)
 
     def tearDown(self):
+        self.token_patch.stop()
         self.store.close()
         self.temp.cleanup()
 
@@ -26,7 +31,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(state["analysis"]["agents"]), 5)
         self.assertIsNone(state["review"])
         record_review(self.store, self.case, "approved_for_tracking",
-                      "human-analyst", "Track a bounded measurement")
+                      "human-analyst", "Track a bounded measurement", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
         prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
         state = record_measurement(self.store, self.case, prediction, 105,
                                    "metrics.csv", "human-analyst")
@@ -42,17 +47,17 @@ class WorkflowTests(unittest.TestCase):
             propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
 
     def test_rejection_blocks_tracking(self):
-        record_review(self.store, self.case, "rejected", "analyst", "Not justified")
+        record_review(self.store, self.case, "rejected", "analyst", "Not justified", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
         with self.assertRaises(PermissionError):
             propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
 
     def test_review_cannot_be_replaced(self):
-        record_review(self.store, self.case, "needs_revision", "analyst", "More data")
+        record_review(self.store, self.case, "needs_revision", "analyst", "More data", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
         with self.assertRaises(ValueError):
-            record_review(self.store, self.case, "approved_for_tracking", "analyst", "Override")
+            record_review(self.store, self.case, "approved_for_tracking", "analyst", "Override", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
 
     def test_duplicate_measurement_rejected(self):
-        record_review(self.store, self.case, "approved_for_tracking", "analyst", "Test")
+        record_review(self.store, self.case, "approved_for_tracking", "analyst", "Test", operator_token=os.environ["HEDGEOPS_OPERATOR_TOKEN"])
         prediction = propose_prediction(self.store, self.case, "latency", 100, 10, "ms")
         record_measurement(self.store, self.case, prediction, 95, "metrics.csv", "analyst")
         with self.assertRaises(ValueError):
