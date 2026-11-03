@@ -14,6 +14,7 @@ from hedgeops.connection_server import BoundedCustodyHTTPServer
 from hedgeops.custody_metrics import CustodyMetrics
 from hedgeops.custody_alert_anchor import _record as _validate_alert
 from hedgeops.receipt_custody import _validate
+from hedgeops.recovery_fence import RecoveryFenceAuthority
 from hedgeops.store import canonical
 
 MAX_BODY = 4096
@@ -69,6 +70,36 @@ class CustodyDatabase:
             return True
 
 
+    def cas_alert_fenced(self, condition, record, generation):
+        """Atomically check generation and alert CAS in one SQLite transaction."""
+        _validate_alert(record)
+        if type(generation) is not int or generation < 1:
+            return False
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            fence = db.execute(
+                "SELECT generation FROM recovery_fence WHERE id=1").fetchone()
+            if fence is None or fence[0] != generation:
+                return False
+            row = db.execute(
+                "SELECT sequence,digest FROM alert_custody WHERE id=1").fetchone()
+            current = None if row is None else {
+                "sequence": row[0], "checkpoint_sha256": row[1]}
+            if current is None:
+                if condition != "*" or record["sequence"] != 1:
+                    return False
+                db.execute(
+                    "INSERT INTO alert_custody(id,sequence,digest) VALUES(1,?,?)",
+                    (record["sequence"], record["checkpoint_sha256"]))
+            else:
+                if condition != _etag(current) or record["sequence"] <= current["sequence"]:
+                    return False
+                db.execute(
+                    "UPDATE alert_custody SET sequence=?,digest=? WHERE id=1",
+                    (record["sequence"], record["checkpoint_sha256"]))
+            db.commit()
+            return True
+
     def read_alert(self):
         with self._connect() as db:
             row = db.execute("SELECT sequence,digest FROM alert_custody WHERE id=1").fetchone()
@@ -94,10 +125,13 @@ class CustodyDatabase:
             return True
 
 
-def make_handler(database, bearer_token, *, admission=None, metrics=None):
+def make_handler(database, bearer_token, *, admission=None, metrics=None,
+                 require_alert_fence=False):
     """Create a handler bound to a database and an operator-managed secret."""
     if not isinstance(bearer_token, str) or len(bearer_token) < 24:
         raise ValueError("Bearer token must be at least 24 characters")
+    if type(require_alert_fence) is not bool:
+        raise ValueError("require_alert_fence must be boolean")
     token_bytes = bearer_token.encode("utf-8")
     admission = admission if admission is not None else AdmissionController()
     metrics = metrics if metrics is not None else CustodyMetrics()
@@ -181,7 +215,8 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None):
             if not self._valid_framing(body=True):
                 return
             if (len(self.headers.get_all("If-Match", [])) > 1 or
-                    len(self.headers.get_all("If-None-Match", [])) > 1):
+                    len(self.headers.get_all("If-None-Match", [])) > 1 or
+                    len(self.headers.get_all("X-Recovery-Fence", [])) > 1):
                 self.close_connection = True
                 self._reply(400)
                 return
@@ -215,10 +250,25 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None):
                 self._reply(428)
                 return
             condition = if_match if if_match is not None else "*"
+            fence_header = self.headers.get("X-Recovery-Fence")
+            if self.path == "/v1/alert-checkpoint" and require_alert_fence:
+                if (fence_header is None or not fence_header.isascii() or
+                        not fence_header.isdecimal() or
+                        fence_header.startswith("0") or len(fence_header) > 19):
+                    self._reply(428)
+                    return
+                generation = int(fence_header)
+            else:
+                generation = None
+                if fence_header is not None:
+                    self._reply(400)
+                    return
             try:
-                accepted = (database.cas_alert(condition, record)
-                            if self.path == "/v1/alert-checkpoint"
-                            else database.cas(condition, record))
+                accepted = (database.cas_alert_fenced(condition, record, generation)
+                            if generation is not None else
+                            database.cas_alert(condition, record)
+                            if self.path == "/v1/alert-checkpoint" else
+                            database.cas(condition, record))
                 if accepted:
                     self._reply(204)
                 else:
@@ -248,13 +298,16 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None):
 
 
 def serve(database_path, bearer_token, *, host="127.0.0.1", port=8765,
-          max_connections=32):
+          max_connections=32, require_alert_fence=False):
     """Blocking local-only reference server; TLS must be provided upstream."""
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise ValueError("Reference server only binds to loopback")
     database = CustodyDatabase(database_path)
+    if require_alert_fence:
+        RecoveryFenceAuthority(database_path)
     server = BoundedCustodyHTTPServer(
-        (host, port), make_handler(database, bearer_token),
+        (host, port), make_handler(database, bearer_token,
+                                  require_alert_fence=require_alert_fence),
         max_connections=max_connections)
     try:
         server.serve_forever()
