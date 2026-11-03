@@ -7,6 +7,7 @@ from hedgeops.operations import require_operator_token
 from hedgeops.recovery_execution_audit import append_execution_event, ensure_execution_audit
 from hedgeops.recovery_custody_gate import verify_recovery_custody_gate
 from hedgeops.recovery_fence import StaleRecoveryFence
+from hedgeops.recovery_execution_custody_gate import verify_recovery_execution_custody_gate
 
 
 class RecoveryAdmissionError(PermissionError):
@@ -16,7 +17,9 @@ class RecoveryAdmissionError(PermissionError):
 def execute_fenced_recovery(
         authority, fence_checkpoint, fence_key, fence_custodian,
         journal, alert_checkpoint, alert_key, alert_custodian,
-        generation, operator_token, mutation, *, configured_token=None):
+        generation, operator_token, mutation, *, configured_token=None,
+        execution_checkpoint=None, execution_key=None,
+        execution_custodian=None):
     """Authorize, verify custody, and execute one local fenced transaction.
 
     mutation(db) must only modify the authority's own SQLite database
@@ -33,11 +36,23 @@ def execute_fenced_recovery(
             "SELECT 1 FROM recovery_fence_policy WHERE id=1").fetchone()
     if policy is None:
         raise RecoveryAdmissionError("Strict fencing policy is required")
+    execution_args = (execution_checkpoint, execution_key, execution_custodian)
+    if any(value is not None for value in execution_args) and not all(
+            value is not None for value in execution_args):
+        raise RecoveryAdmissionError("Execution custody evidence is incomplete")
     ensure_execution_audit(authority)
-    if not verify_recovery_custody_gate(
+    if all(value is not None for value in execution_args):
+        permitted = verify_recovery_execution_custody_gate(
             authority, fence_checkpoint, fence_key, fence_custodian,
             journal, alert_checkpoint, alert_key, alert_custodian,
-            generation):
+            generation, execution_checkpoint, execution_key,
+            execution_custodian)
+    else:
+        permitted = verify_recovery_custody_gate(
+            authority, fence_checkpoint, fence_key, fence_custodian,
+            journal, alert_checkpoint, alert_key, alert_custodian,
+            generation)
+    if not permitted:
         raise RecoveryAdmissionError("Recovery custody gate rejected request")
 
     def guarded(db):
