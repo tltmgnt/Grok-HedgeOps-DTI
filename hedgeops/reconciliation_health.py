@@ -26,9 +26,12 @@ def reconciliation_health(authority):
             confirmed = sum(confirmed == 1 for _, _, confirmed in outbox)
             head = audit[-1][0] if audit else 0
             valid = _verify_rows(audit)
+            # Every outbox row must occupy its matching audit position.
+            # Legacy missing tail rows remain visible as untracked audit
+            # to the readiness layer, while internal holes are corruption.
             pending_seen = False
-            for sequence, digest, state in outbox:
-                if (type(sequence) is not int or sequence < 1 or
+            for expected, (sequence, digest, state) in enumerate(outbox, 1):
+                if (type(sequence) is not int or sequence != expected or
                         sequence > len(audit) or type(state) is not int or
                         state not in (0, 1) or
                         digest != audit[sequence - 1][3]):
