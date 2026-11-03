@@ -15,6 +15,7 @@ from hedgeops.custody_metrics import CustodyMetrics
 from hedgeops.custody_alert_anchor import _record as _validate_alert
 from hedgeops.fence_audit_custody import _record as _validate_fence_audit
 from hedgeops.receipt_custody import _validate
+from hedgeops.recovery_execution_custody import validate_execution_record
 from hedgeops.recovery_fence import RecoveryFenceAuthority
 from hedgeops.store import canonical
 
@@ -33,6 +34,7 @@ class CustodyDatabase:
             db.execute("CREATE TABLE IF NOT EXISTS custody (id INTEGER PRIMARY KEY CHECK (id=1), sequence INTEGER NOT NULL, digest TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS alert_custody (id INTEGER PRIMARY KEY CHECK (id=1), sequence INTEGER NOT NULL, digest TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS fence_audit_custody (id INTEGER PRIMARY KEY CHECK (id=1), generation INTEGER NOT NULL, digest TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS execution_custody (id INTEGER PRIMARY KEY CHECK (id=1), sequence INTEGER NOT NULL, digest TEXT NOT NULL)")
             db.commit()
 
     def _connect(self):
@@ -162,6 +164,39 @@ class CustodyDatabase:
             return True
 
 
+
+    def read_execution(self):
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT sequence,digest FROM execution_custody WHERE id=1").fetchone()
+            return None if row is None else {
+                "sequence": row[0], "checkpoint_sha256": row[1]}
+
+    def cas_execution(self, condition, record):
+        validate_execution_record(record)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT sequence,digest FROM execution_custody WHERE id=1").fetchone()
+            current = None if row is None else {
+                "sequence": row[0], "checkpoint_sha256": row[1]}
+            if current is None:
+                if condition != "*" or record["sequence"] != 1:
+                    return False
+                db.execute(
+                    "INSERT INTO execution_custody(id,sequence,digest) VALUES(1,?,?)",
+                    (record["sequence"], record["checkpoint_sha256"]))
+            else:
+                if (condition != _etag(current) or
+                        record["sequence"] <= current["sequence"]):
+                    return False
+                db.execute(
+                    "UPDATE execution_custody SET sequence=?,digest=? WHERE id=1",
+                    (record["sequence"], record["checkpoint_sha256"]))
+            db.commit()
+            return True
+
+
 def make_handler(database, bearer_token, *, admission=None, metrics=None,
                  require_alert_fence=False):
     """Create a handler bound to a database and an operator-managed secret."""
@@ -229,7 +264,7 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None,
         def do_GET(self):
             if not self._valid_framing():
                 return
-            if self.path not in ("/v1/receipt", "/v1/alert-checkpoint", "/v1/fence-audit", "/v1/health"):
+            if self.path not in ("/v1/receipt", "/v1/alert-checkpoint", "/v1/fence-audit", "/v1/execution-checkpoint", "/v1/health"):
                 self._reply(404)
                 return
             if not self._authorized():
@@ -239,6 +274,7 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None,
                     self._reply(200 if database.healthy() else 503)
                     return
                 record = (database.read_alert() if self.path == "/v1/alert-checkpoint"
+                          else database.read_execution() if self.path == "/v1/execution-checkpoint"
                           else database.read_fence_audit() if self.path == "/v1/fence-audit"
                           else database.read())
                 if record is None:
@@ -258,7 +294,7 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None,
                 self.close_connection = True
                 self._reply(400)
                 return
-            if self.path not in ("/v1/receipt", "/v1/alert-checkpoint", "/v1/fence-audit"):
+            if self.path not in ("/v1/receipt", "/v1/alert-checkpoint", "/v1/fence-audit", "/v1/execution-checkpoint"):
                 self._reply(404)
                 return
             if not self._authorized():
@@ -277,6 +313,7 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None,
                 record = json.loads(raw.decode("utf-8"))
                 (_validate_alert if self.path == "/v1/alert-checkpoint" else
                  _validate_fence_audit if self.path == "/v1/fence-audit" else
+                 validate_execution_record if self.path == "/v1/execution-checkpoint" else
                  _validate)(record)
             except (ValueError, UnicodeError, TypeError):
                 self._reply(400)
@@ -310,6 +347,8 @@ def make_handler(database, bearer_token, *, admission=None, metrics=None,
                             if self.path == "/v1/alert-checkpoint" else
                             database.cas_fence_audit(condition, record)
                             if self.path == "/v1/fence-audit" else
+                            database.cas_execution(condition, record)
+                            if self.path == "/v1/execution-checkpoint" else
                             database.cas(condition, record))
                 if accepted:
                     self._reply(204)
