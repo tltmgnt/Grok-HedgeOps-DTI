@@ -4,6 +4,9 @@ A generation only fences actions that call require_current() at their
 commit boundary. SQLite is not an independently rollback-resistant authority.
 """
 import sqlite3
+import hashlib
+import re
+from hedgeops.operations import require_operator_token
 
 
 class StaleRecoveryFence(ValueError):
@@ -17,6 +20,11 @@ class RecoveryFenceAuthority:
             db.execute("""CREATE TABLE IF NOT EXISTS recovery_fence (
                 id INTEGER PRIMARY KEY CHECK(id=1),
                 generation INTEGER NOT NULL CHECK(generation >= 1))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS recovery_fence_issuance (
+                generation INTEGER PRIMARY KEY,
+                operator_digest TEXT NOT NULL,
+                previous_hash TEXT NOT NULL,
+                event_hash TEXT NOT NULL)""")
             db.commit()
 
     def _connect(self):
@@ -43,6 +51,63 @@ class RecoveryFenceAuthority:
                     (generation,))
             db.commit()
             return generation
+
+    def acquire_authorized(self, operator_id, token, *, configured_token=None):
+        """Issue a generation with operator authentication and audit."""
+        require_operator_token(token, configured_token)
+        if not isinstance(operator_id, str) or re.fullmatch(
+                r"[A-Za-z0-9_.@-]{1,80}", operator_id) is None:
+            raise ValueError("Invalid operator identifier")
+        operator_digest = hashlib.sha256(
+            ("hedgeops-fence-operator-v1:" + operator_id).encode()).hexdigest()
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT generation FROM recovery_fence WHERE id=1").fetchone()
+            generation = 1 if row is None else row[0] + 1
+            if row is None:
+                db.execute("INSERT INTO recovery_fence(id,generation) VALUES(1,?)",
+                           (generation,))
+            else:
+                db.execute("UPDATE recovery_fence SET generation=? WHERE id=1",
+                           (generation,))
+            previous = db.execute(
+                "SELECT event_hash FROM recovery_fence_issuance "
+                "ORDER BY generation DESC LIMIT 1").fetchone()
+            previous_hash = previous[0] if previous else "0" * 64
+            event_hash = hashlib.sha256(
+                ("hedgeops-fence-issuance-v1:" + str(generation) + ":" +
+                 operator_digest + ":" + previous_hash).encode()).hexdigest()
+            db.execute(
+                "INSERT INTO recovery_fence_issuance "
+                "(generation,operator_digest,previous_hash,event_hash) "
+                "VALUES(?,?,?,?)",
+                (generation, operator_digest, previous_hash, event_hash))
+            db.commit()
+            return generation
+
+    def verify_issuance_audit(self):
+        """Validate local hash continuity, not independent anchoring."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT generation,operator_digest,previous_hash,event_hash "
+                "FROM recovery_fence_issuance ORDER BY generation").fetchall()
+            previous_hash = "0" * 64
+            last_generation = 0
+            for generation, operator_digest, predecessor, event_hash in rows:
+                if (generation <= last_generation or predecessor != previous_hash
+                        or not isinstance(operator_digest, str)
+                        or re.fullmatch(r"[0-9a-f]{64}", operator_digest) is None):
+                    return False
+                expected = hashlib.sha256(
+                    ("hedgeops-fence-issuance-v1:" + str(generation) + ":" +
+                     operator_digest + ":" + predecessor).encode()).hexdigest()
+                if expected != event_hash:
+                    return False
+                last_generation, previous_hash = generation, event_hash
+            current = db.execute(
+                "SELECT generation FROM recovery_fence WHERE id=1").fetchone()
+            return not rows or (current is not None and current[0] >= last_generation)
 
     def current(self):
         with self._connect() as db:
