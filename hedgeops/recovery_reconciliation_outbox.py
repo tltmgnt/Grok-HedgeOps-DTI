@@ -97,11 +97,16 @@ def reconcile_pending_outbox(authority, key, custodian):
             elif pending_seen:
                 raise ValueError("Outbox confirmation order invalid")
         # Confirm remote custody still anchors this exact authenticated head.
-        observed = custodian.read()
-        expected = {"sequence": checkpoint["sequence"],
-                    "checkpoint_sha256": execution_checkpoint_fingerprint(checkpoint)}
-        if observed is None or validate_execution_record(observed) != expected:
-            raise ExecutionReconciliationError("Custody changed before outbox confirmation")
+        try:
+            observed = custodian.read()
+            expected = {"sequence": checkpoint["sequence"],
+                        "checkpoint_sha256": execution_checkpoint_fingerprint(checkpoint)}
+            if observed is None or validate_execution_record(observed) != expected:
+                raise ExecutionReconciliationError(
+                    "Custody changed before outbox confirmation")
+        except (OSError, ValueError, TypeError, KeyError, UnicodeError) as exc:
+            raise ExecutionReconciliationError(
+                "Custody response invalid or unavailable before confirmation") from exc
         rows = db.execute(
             "SELECT sequence,event_hash FROM recovery_reconciliation_outbox "
             "WHERE confirmed=0 AND sequence<=? ORDER BY sequence",
