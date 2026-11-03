@@ -134,11 +134,22 @@ class HTTPSReceiptCustodian:
 class HTTPSAlertCheckpointCustodian(HTTPSReceiptCustodian):
     """HTTPS CAS client for the distinct /v1/alert-checkpoint namespace."""
 
-    def __init__(self, url, bearer_token, *, timeout=10, opener=None):
+    def __init__(self, url, bearer_token, *, timeout=10, opener=None,
+                 recovery_fence=None):
         parsed = urllib.parse.urlsplit(url)
         if parsed.path != "/v1/alert-checkpoint" or parsed.query:
             raise ValueError("Alert custody requires /v1/alert-checkpoint")
+        if recovery_fence is not None and (type(recovery_fence) is not int or
+                                           recovery_fence < 1):
+            raise ValueError("Recovery fence must be a positive integer")
         super().__init__(url, bearer_token, timeout=timeout, opener=opener)
+        self.recovery_fence = recovery_fence
+
+    def _request(self, method, data=None, conditional=None):
+        if method == "PUT" and self.recovery_fence is not None:
+            conditional = dict(conditional or {})
+            conditional["X-Recovery-Fence"] = str(self.recovery_fence)
+        return super()._request(method, data=data, conditional=conditional)
 
     @staticmethod
     def _validate_record(record):
