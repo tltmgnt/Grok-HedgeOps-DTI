@@ -42,7 +42,7 @@ def backup_journal(store, destination):
     return path
 
 
-def verify_restored_journal(backup_path, checkpoint_path, registry):
+def verify_restored_journal(backup_path, checkpoint_path, registry, *, authentication_key=None):
     """Read-only verification of a restored backup against a trusted checkpoint."""
     path = Path(backup_path)
     if not path.is_file():
@@ -62,12 +62,14 @@ def verify_restored_journal(backup_path, checkpoint_path, registry):
                 target.commit()
             with EventStore(restored) as store:
                 return store.verify_chain() and verify_saved_checkpoint(
-                    store, checkpoint_path, registry)
+                    store, checkpoint_path, registry,
+                    authentication_key=authentication_key)
     except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         return False
 
 
-def backup_with_checkpoint(store, case_id, registry, backup_path, checkpoint_path):
+def backup_with_checkpoint(store, case_id, registry, backup_path, checkpoint_path,
+                           *, authentication_key=None):
     """Create a snapshot and a checkpoint derived from that exact snapshot.
 
     Both destinations must be new files. A failure after backup publication
@@ -92,7 +94,9 @@ def backup_with_checkpoint(store, case_id, registry, backup_path, checkpoint_pat
                 source.backup(target)
             target.commit()
         with EventStore(restored) as snapshot:
-            save_checkpoint(snapshot, case_id, registry, checkpoint)
-    if not verify_restored_journal(backup, checkpoint, registry):
+            save_checkpoint(snapshot, case_id, registry, checkpoint,
+                            authentication_key=authentication_key)
+    if not verify_restored_journal(backup, checkpoint, registry,
+                                   authentication_key=authentication_key):
         raise ValueError("Backup/checkpoint verification failed")
     return backup, checkpoint
