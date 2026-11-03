@@ -39,6 +39,13 @@ def reconciliation_readiness(authority, checkpoint, key, custodian):
     if local["status"] != "healthy":
         return {"ready": False, "status": local["status"],
                 "local": local, "custody_verified": False}
+    # Require a nonempty, fully confirmed audit outbox before remote reads.
+    if local["audit_head"] == 0:
+        return {"ready": False, "status": "no_executions",
+                "local": local, "custody_verified": False}
+    if local["confirmed"] != local["audit_head"]:
+        return {"ready": False, "status": "untracked_audit",
+                "local": local, "custody_verified": False}
     try:
         head = execution_audit_head(authority)
         if (type(checkpoint) is not dict or
@@ -53,7 +60,9 @@ def reconciliation_readiness(authority, checkpoint, key, custodian):
         after = reconciliation_health(authority)
         final_head = execution_audit_head(authority)
         stable = (after == local and
-                  final_head == head)
+                  final_head == head and
+                  after["audit_head"] > 0 and
+                  after["confirmed"] == after["audit_head"])
         return {"ready": bool(verified and stable),
                 "status": ("ready" if verified and stable else
                            "local_changed" if not stable else
