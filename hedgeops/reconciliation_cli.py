@@ -13,6 +13,32 @@ EXIT_READY = 0
 EXIT_DENIED = 2
 EXIT_ERROR = 3
 
+# Stable monitoring contract: evidence denials are not operational failures.
+_DENIAL_CODES = frozenset({
+    "PENDING_RECONCILIATION", "LOCAL_INTEGRITY_FAILURE",
+    "CHECKPOINT_MISMATCH", "CUSTODY_UNVERIFIED", "LOCAL_STATE_CHANGED",
+})
+_ERROR_CODES = frozenset({
+    "LOCAL_STATUS_UNAVAILABLE", "READINESS_UNAVAILABLE",
+})
+
+
+def readiness_exit_code(report):
+    """Classify only known, internally consistent diagnostic results."""
+    if not isinstance(report, dict):
+        return EXIT_ERROR
+    reason = report.get("reason_code")
+    ready = report.get("ready")
+    if type(ready) is not bool:
+        return EXIT_ERROR
+    if ready and reason == "READY" and report.get("custody_verified") is True:
+        return EXIT_READY
+    if not ready and reason in _DENIAL_CODES:
+        return EXIT_DENIED
+    if not ready and reason in _ERROR_CODES:
+        return EXIT_ERROR
+    return EXIT_ERROR
+
 
 class ReadOnlyAuthority:
     def __init__(self, path):
@@ -40,7 +66,7 @@ def main(argv=None):
         custodian = HTTPSExecutionCheckpointCustodian(args.custody_url, token)
         report = readiness_diagnostics(
             ReadOnlyAuthority(args.database), checkpoint, key, custodian)
-        code = EXIT_READY if report["ready"] else EXIT_DENIED
+        code = readiness_exit_code(report)
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
         report = {"ready": False, "reason_code": "READINESS_UNAVAILABLE",
                   "message": "Readiness check could not be completed.",
