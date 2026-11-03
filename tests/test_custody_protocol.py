@@ -25,8 +25,19 @@ class LocalOpener:
     def open(self, request, timeout):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
         headers = dict(request.header_items())
-        connection.request(request.get_method(), "/v1/receipt",
-                           body=request.data, headers=headers)
+        method = request.get_method()
+        # http.client may add Content-Length: 0 to bodyless methods.
+        # Emit an explicit bodyless GET without framing headers.
+        if method == "GET":
+            headers = {key: value for key, value in headers.items()
+                       if key.lower() not in ("content-length", "transfer-encoding")}
+            connection.putrequest("GET", "/v1/receipt")
+            for key, value in headers.items():
+                connection.putheader(key, value)
+            connection.endheaders()
+        else:
+            connection.request(method, "/v1/receipt",
+                               body=request.data, headers=headers)
         response = connection.getresponse()
         if response.status >= 400:
             code = response.status
@@ -110,10 +121,18 @@ class Phase32Tests(unittest.TestCase):
         }), 400)
 
     def test_missing_length_rejected(self):
-        self.assertEqual(self.request("PUT", {
-            "Authorization": "Bearer " + TOKEN,
-            "If-None-Match": "*",
-        }), 411)
+        # HTTPConnection.request automatically supplies Content-Length: 0
+        # for PUT, so use the low-level API to truly omit the header.
+        conn = http.client.HTTPConnection(
+            "127.0.0.1", self.server.server_port, timeout=3)
+        conn.putrequest("PUT", "/v1/receipt")
+        conn.putheader("Authorization", "Bearer " + TOKEN)
+        conn.putheader("If-None-Match", "*")
+        conn.endheaders()
+        response = conn.getresponse()
+        self.assertEqual(response.status, 411)
+        response.read()
+        conn.close()
 
     def test_invalid_etag_condition_rejected(self):
         self.assertEqual(self.request("PUT", {
