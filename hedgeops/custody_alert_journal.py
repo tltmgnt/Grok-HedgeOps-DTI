@@ -74,28 +74,6 @@ class CustodyAlertJournal:
         return {"scheme": SCHEME, "sequence": sequence,
                 "previous_hash": previous_hash, "payload": payload}
 
-    @classmethod
-    def _verify_rows(cls, rows):
-        previous = GENESIS
-        for sequence, prev, raw, digest in rows:
-            if type(sequence) is not int or sequence < 1:
-                return False
-            if sequence != cls._next_sequence or prev != previous:
-                return False
-            try:
-                payload = json.loads(raw)
-                if _validated_evaluation(payload) != payload:
-                    return False
-                if canonical(payload) != raw:
-                    return False
-            except (ValueError, TypeError, KeyError):
-                return False
-            if digest != _digest(cls._body(sequence, prev, payload)):
-                return False
-            previous = digest
-            cls._next_sequence += 1
-        return True
-
     def verify(self):
         with self._connect() as db:
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
