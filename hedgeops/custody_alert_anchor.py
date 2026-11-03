@@ -50,12 +50,19 @@ def publish_alert_checkpoint(journal, checkpoint_key, custodian):
             raise AlertCustodyError("Alert checkpoint sequence must advance")
     if not custodian.compare_and_swap(old, new):
         raise AlertCustodyError("Alert custody CAS conflict")
+    confirmed = custodian.read()
+    if confirmed is None or _record(confirmed) != new:
+        raise AlertCustodyError("Alert custody changed after publication")
     return checkpoint
 
 
 def verify_custodied_alert_journal(journal, trusted_checkpoint,
                                   checkpoint_key, custodian):
-    """Fail closed on missing/stale custody or invalid journal ancestry."""
+    """Verify ancestry between two custody reads; reject observed advances.
+
+    A writer can still advance after the final read. Callers needing a
+    linearizable decision must coordinate through an external custody lease.
+    """
     try:
         _key(checkpoint_key)
         record = custodian.read()
@@ -68,7 +75,12 @@ def verify_custodied_alert_journal(journal, trusted_checkpoint,
                     checkpoint_fingerprint(trusted_checkpoint),
                     record["checkpoint_sha256"])):
             return False
-        return verify_alert_checkpoint(journal, trusted_checkpoint,
-                                       checkpoint_key)
+        if not verify_alert_checkpoint(journal, trusted_checkpoint,
+                                       checkpoint_key):
+            return False
+        # Catch concurrent advances during potentially expensive journal checks.
+        # This is a second observation, not a lease or atomic read transaction.
+        confirmed = custodian.read()
+        return confirmed is not None and _record(confirmed) == record
     except (AlertCustodyError, ValueError, TypeError, KeyError, OSError):
         return False
