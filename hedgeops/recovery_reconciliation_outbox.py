@@ -3,6 +3,7 @@
 Outbox rows are inserted in the same SQLite transaction as the mutation.
 """
 from hedgeops.recovery_execution import execute_fenced_recovery
+from hedgeops.recovery_outbox_integrity import require_reconciliation_outbox_integrity
 from hedgeops.recovery_execution_audit import execution_audit_head
 from hedgeops.recovery_execution_reconciliation import reconcile_execution_custody, ExecutionReconciliationError
 from hedgeops.recovery_execution_custody import (
@@ -63,9 +64,29 @@ def execute_with_reconciliation_outbox(
 
 def reconcile_pending_outbox(authority, key, custodian):
     """Publish current head and confirm all covered, matching outbox entries."""
+    require_reconciliation_outbox_integrity(authority)
     checkpoint = reconcile_execution_custody(authority, key, custodian)
     with authority._connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        # Confirm local linkage again after remote publication.
+        # The SQLite write lock prevents concurrent local modifications.
+        audit = db.execute(
+            "SELECT sequence,generation,previous_hash,event_hash "
+            "FROM recovery_execution_audit ORDER BY sequence").fetchall()
+        from hedgeops.recovery_execution_audit import _verify_rows
+        if not _verify_rows(audit):
+            raise ValueError("Execution audit changed during publication")
+        all_rows = db.execute(
+            "SELECT sequence,event_hash,confirmed "
+            "FROM recovery_reconciliation_outbox ORDER BY sequence").fetchall()
+        pending_seen = False
+        for seq, digest, confirmed in all_rows:
+            if seq < 1 or seq > len(audit) or digest != audit[seq - 1][3]:
+                raise ValueError("Outbox does not match execution audit")
+            if confirmed == 0:
+                pending_seen = True
+            elif pending_seen:
+                raise ValueError("Outbox confirmation order invalid")
         # Confirm remote custody still anchors this exact authenticated head.
         observed = custodian.read()
         expected = {"sequence": checkpoint["sequence"],
