@@ -3,6 +3,7 @@ import http.client
 import json
 import tempfile
 import threading
+import urllib.error
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,11 @@ class LocalOpener:
         connection.request(request.get_method(), "/v1/receipt",
                            body=request.data, headers=headers)
         response = connection.getresponse()
+        if response.status >= 400:
+            code = response.status
+            response.read()
+            connection.close()
+            raise urllib.error.HTTPError(URL, code, 'local test', {}, None)
         return LocalResponse(response, connection)
 
 
