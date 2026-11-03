@@ -94,14 +94,18 @@ class HTTPSReceiptCustodian:
         self._etag = etag
         return dict(record)
 
+    @staticmethod
+    def _validate_record(record):
+        from hedgeops.receipt_custody import _validate
+        return _validate(record)
+
     def compare_and_swap(self, expected, new):
         """Perform a conditional PUT based on the immediately prior read."""
         if not self._observed or expected != self._last:
             return False
-        from hedgeops.receipt_custody import _validate
-        _validate(new)
+        self._validate_record(new)
         if expected is not None:
-            _validate(expected)
+            self._validate_record(expected)
             if (new["sequence"] <= expected["sequence"] or
                     not self._etag):
                 return False
@@ -125,3 +129,18 @@ class HTTPSReceiptCustodian:
             if response.status not in (200, 201, 204):
                 raise ValueError("Unexpected custody write status")
         return True
+
+
+class HTTPSAlertCheckpointCustodian(HTTPSReceiptCustodian):
+    """HTTPS CAS client for the distinct /v1/alert-checkpoint namespace."""
+
+    def __init__(self, url, bearer_token, *, timeout=10, opener=None):
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.path != "/v1/alert-checkpoint" or parsed.query:
+            raise ValueError("Alert custody requires /v1/alert-checkpoint")
+        super().__init__(url, bearer_token, timeout=timeout, opener=opener)
+
+    @staticmethod
+    def _validate_record(record):
+        from hedgeops.custody_alert_anchor import _record
+        return _record(record)
