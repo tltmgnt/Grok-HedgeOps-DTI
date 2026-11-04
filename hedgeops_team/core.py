@@ -1,5 +1,6 @@
 """Deterministic multi-agent decision support; no broker integration."""
 from dataclasses import dataclass, asdict
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -44,6 +45,7 @@ class DecisionReport:
     suggested_position_pct: float = 0.0
     paper_only: bool = True
     sell_semantics: str = "not_applicable"
+    strategic_source: str = "unverified_mirror"
 
     def to_dict(self):
         return asdict(self)
@@ -102,7 +104,7 @@ def _validate(bars, portfolio, expected_bar_interval=None):
     return prices, p
 
 class HedgeOpsTeam:
-    def __init__(self, strategic_agent=None, risk_limits=None, expected_bar_interval=None):
+    def __init__(self, strategic_agent=None, risk_limits=None, expected_bar_interval=None, require_independent_strategy=False):
         self.strategic_agent = strategic_agent
         if risk_limits is not None and not isinstance(risk_limits, RiskLimits):
             raise TypeError("risk_limits must be RiskLimits")
@@ -110,10 +112,16 @@ class HedgeOpsTeam:
         if expected_bar_interval is not None and (not isinstance(expected_bar_interval, timedelta) or expected_bar_interval <= timedelta(0)):
             raise ValueError("expected_bar_interval must be a positive timedelta")
         self.expected_bar_interval = expected_bar_interval
+        if not isinstance(require_independent_strategy, bool):
+            raise ValueError("require_independent_strategy must be bool")
+        self.require_independent_strategy = require_independent_strategy
 
     def analyze(self, bars, portfolio):
+        # Freeze the validated inputs before invoking potentially untrusted adapters.
+        bars = deepcopy(bars)
+        portfolio = deepcopy(portfolio)
         prices, p = _validate(bars, portfolio, self.expected_bar_interval)
-        digest = sha256(json.dumps({"bars": bars, "portfolio": portfolio}, sort_keys=True, default=str).encode()).hexdigest()
+        digest = sha256(json.dumps({"bars": bars, "portfolio": portfolio}, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
         returns = [b / a - 1 for a, b in zip(prices, prices[1:])]
         mean = sum(returns) / len(returns)
         vol = (sum((r - mean) ** 2 for r in returns) / len(returns)) ** 0.5
@@ -124,18 +132,23 @@ class HedgeOpsTeam:
             Evidence("risk", "HOLD", 1.0, ("portfolio:exposure_pct", "portfolio:drawdown_pct", "close:returns"), "Hard risk policy"),
         ]
         strategic_action = temporal_action
+        strategic_source = "unverified_mirror"
         if self.strategic_agent is not None:
+            strategic_source = "external_adapter"
             try:
-                result = self.strategic_agent.analyze(bars=bars, portfolio=portfolio)
+                result = self.strategic_agent.analyze(bars=deepcopy(bars), portfolio=deepcopy(portfolio))
                 strategic_action = result["action"] if isinstance(result, dict) else result.action
                 if strategic_action not in ("BUY", "SELL", "HOLD"):
                     raise ValueError("invalid strategic action")
             except Exception:
                 strategic_action = "HOLD"
+                strategic_source = "adapter_failure"
                 evidence.append(Evidence("adapter", "HOLD", 1.0, ("adapter:failure",), "Strategic adapter failed closed"))
         evidence.append(Evidence("strategic", strategic_action, 0.6 if strategic_action != "HOLD" else 1.0, ("close:all",), "Strategic scenario"))
         evidence.append(Evidence("adversarial", "HOLD", 0.5, ("close:returns",), "Historical prices cannot establish future outcomes", ("Forecast uncertainty",)))
         reasons = []
+        if self.require_independent_strategy and strategic_source != "external_adapter":
+            reasons.append("independent strategic evidence required")
         if p["drawdown_pct"] >= self.risk_limits.max_drawdown_pct:
             reasons.append("drawdown veto")
         if p["exposure_pct"] >= self.risk_limits.max_exposure_pct:
@@ -151,4 +164,4 @@ class HedgeOpsTeam:
         action = "HOLD" if reasons else temporal_action
         size = min(self.risk_limits.max_position_pct, max(0.0, self.risk_limits.max_exposure_pct - p["exposure_pct"])) if action == "BUY" else 0.0
         sell_semantics = "directional_signal_only" if action == "SELL" else "not_applicable"
-        return DecisionReport(action, 0.0 if action == "HOLD" else 0.6, tuple(reasons or ("directional consensus; within risk limits",)), tuple(asdict(e) for e in evidence), digest, size, sell_semantics=sell_semantics)
+        return DecisionReport(action, 0.0 if action == "HOLD" else 0.6, tuple(reasons or ("directional consensus; within risk limits",)), tuple(asdict(e) for e in evidence), digest, size, sell_semantics=sell_semantics, strategic_source=strategic_source)
