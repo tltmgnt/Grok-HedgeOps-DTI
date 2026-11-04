@@ -32,7 +32,7 @@ def simulate(prices, capital=200.0, fast=5, slow=20, fee=0.001):
     for date, price in prices:
         if not math.isfinite(price) or price <= 0:
             raise ValueError("Prices must be finite and positive")
-        history.append(price)
+        
         if len(history) >= slow:
             short_avg = sum(history[-fast:]) / fast
             long_avg = sum(history[-slow:]) / slow
@@ -50,6 +50,7 @@ def simulate(prices, capital=200.0, fast=5, slow=20, fee=0.001):
         equity = cash + units * price
         peak = max(peak, equity)
         max_drawdown = max(max_drawdown, (peak - equity) / peak)
+        history.append(price)
     if not history:
         raise ValueError("No prices supplied")
     final = cash + units * history[-1]
