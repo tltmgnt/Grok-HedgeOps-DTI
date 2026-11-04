@@ -9,7 +9,9 @@ class PaperTraderTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertGreater(a["ending"], 0)
         self.assertGreaterEqual(a["max_drawdown_pct"], 0)
-        self.assertTrue(all(t[1] in ("BUY", "SELL") for t in a["trades"]))
+        self.assertTrue(
+        all(t["side"] in ("BUY", "SELL") for t in a["trades"])
+)
 
     def test_empty_prices_rejected(self):
         with self.assertRaises(ValueError):
