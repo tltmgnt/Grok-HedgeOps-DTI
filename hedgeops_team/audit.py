@@ -18,7 +18,7 @@ def canonical_json(value):
             if not math.isfinite(item):
                 raise ValueError("non-finite JSON value")
             return
-        if isinstance(item, list):
+        if isinstance(item, (list, tuple)):
             for child in item:
                 validate(child)
             return
