@@ -36,7 +36,7 @@ def simulate(prices, capital=200.0, fast=5, slow=20, fee=0.001):
     history, trades = [], []
     peak, max_drawdown = cash, 0.0
     for date, price in prices:
-        if not math.isfinite(price) or price <= 0:
+        if isinstance(price, bool) or not math.isfinite(price) or price <= 0:
             raise ValueError("Prices must be finite and positive")
         
         if len(history) >= slow:
