@@ -26,6 +26,8 @@ def prices_csv(path):
 def simulate(prices, capital=200.0, fast=5, slow=20, fee=0.001):
     if type(fast) is not int or type(slow) is not int:
         raise ValueError("Moving-average periods must be integers")
+    if isinstance(fee, bool):
+        raise ValueError("Fee must be numeric, not Boolean")
     if isinstance(capital, bool):
         raise ValueError("Starting capital must be numeric, not Boolean")
     if not math.isfinite(capital) or capital <= 0 or fast < 1 or slow <= fast or not 0 <= fee < 1:
