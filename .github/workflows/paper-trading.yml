@@ -1,10 +1,17 @@
+
 name: Offline Paper Trading
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * *'
+      timezone: 'America/Los_Angeles'
 
 permissions:
   contents: read
+
+
+
 
 jobs:
   paper-trading:
