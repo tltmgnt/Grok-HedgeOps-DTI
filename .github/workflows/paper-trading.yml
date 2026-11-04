@@ -1,19 +1,14 @@
-
 name: Offline Paper Trading
-
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 16 * * *'
     - cron: '0 17 * * *'
-
-
 permissions:
   contents: read
-
-
-
-
+concurrency:
+  group: offline-paper-trading
+  cancel-in-progress: false
 jobs:
   paper-trading:
     runs-on: ubuntu-latest
@@ -23,8 +18,9 @@ jobs:
         id: pacific
         env:
           SCHEDULE: ${{ github.event.schedule }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           elif [ "$SCHEDULE" = "0 16 * * *" ] && [ "$(TZ=America/Los_Angeles date -d '16:00 UTC' +%H)" = "09" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
@@ -36,17 +32,16 @@ jobs:
       - name: Checkout
         if: steps.pacific.outputs.run == 'true'
         uses: actions/checkout@v4
-
-      - name: Set up
+        with:
+          persist-credentials: false
+      - name: Set up Python
         if: steps.pacific.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Run offline $200
+      - name: Run offline $200 simulation
         if: steps.pacific.outputs.run == 'true'
         run: python paper_trader.py --demo --capital 200 > paper-trading-results.txt
-
       - name: Save simulation
         if: steps.pacific.outputs.run == 'true'
         uses: actions/upload-artifact@v4
@@ -54,3 +49,4 @@ jobs:
           name: paper-trading-results
           path: paper-trading-results.txt
           retention-days: 7
+          if-no-files-found: error
