@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
       - name: Set up Python
         if: steps.pacific.outputs.run == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Run offline $200 simulation
