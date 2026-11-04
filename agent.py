@@ -1,7 +1,10 @@
 """DTI Ω × HedgeOps Ω — minimal Grok-powered intelligence agent."""
+from __future__ import annotations
+
 import json
 import os
 import sys
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -18,7 +21,37 @@ options, risks and verification. State UNKNOWN when evidence is missing.
 For recommendations specify falsification conditions in verification.
 """
 
+REQUIRED_FIELDS = frozenset({
+    "observation", "evidence", "assumptions", "current_state",
+    "desired_state", "gaps", "dependencies", "bottlenecks", "options",
+    "risks", "uncertainty", "recommendation", "verification",
+})
+ARRAY_FIELDS = frozenset({
+    "evidence", "assumptions", "gaps", "dependencies",
+    "bottlenecks", "options", "risks", "verification",
+})
+
+
+def validate_report(content: str) -> dict:
+    """Reject malformed or structurally incomplete model responses."""
+    try:
+        report = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Model response is not valid JSON") from exc
+    if not isinstance(report, dict):
+        raise ValueError("Model response must be a JSON object")
+    missing = REQUIRED_FIELDS - report.keys()
+    if missing:
+        raise ValueError(f"Model response missing fields: {', '.join(sorted(missing))}")
+    for field in ARRAY_FIELDS:
+        if not isinstance(report[field], list):
+            raise ValueError(f"Model response field {field!r} must be an array")
+    return report
+
+
 def analyze(problem: str) -> dict:
+    if not isinstance(problem, str) or not problem.strip():
+        raise ValueError("Problem must be non-empty text")
     load_dotenv()
     key = os.getenv("XAI_API_KEY")
     model = os.getenv("XAI_MODEL")
@@ -26,22 +59,28 @@ def analyze(problem: str) -> dict:
         raise ValueError("Set XAI_API_KEY in your .env file")
     if not model or model == "replace_with_available_model_id":
         raise ValueError("Set XAI_MODEL to a model available in your xAI Console")
-    client = OpenAI(api_key=key, base_url="https://api.x.ai/v1")
+    client = OpenAI(
+        api_key=key, base_url="https://api.x.ai/v1",
+        timeout=30.0, max_retries=2,
+    )
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT},
-                  {"role": "user", "content": problem}],
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": problem},
+        ],
         temperature=0.2,
     )
     content = response.choices[0].message.content
     if not content:
         raise ValueError("Model returned an empty response")
-    return json.loads(content)
+    return validate_report(content)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit('Usage: python agent.py "Describe the problem to analyze"')
     try:
         print(json.dumps(analyze(" ".join(sys.argv[1:])), indent=2, ensure_ascii=False))
-    except (ValueError, json.JSONDecodeError) as exc:
+    except ValueError as exc:
         sys.exit(f"Error: {exc}")
