@@ -4,8 +4,9 @@ name: Offline Paper Trading
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 9 * * *'
-      timezone: 'America/Los_Angeles'
+    - cron: '0 16 * * *'
+    - cron: '0 17 * * *'
+
 
 permissions:
   contents: read
@@ -18,18 +19,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout repository
+      - name: Check Pacific schedule
+        id: pacific
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$SCHEDULE" = "0 16 * * *" ] && [ "$(TZ=America/Los_Angeles date -d '16:00 UTC' +%H)" = "09" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$SCHEDULE" = "0 17 * * *" ] && [ "$(TZ=America/Los_Angeles date -d '17:00 UTC' +%H)" = "09" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Checkout
+        if: steps.pacific.outputs.run == 'true'
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up
+        if: steps.pacific.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Run offline $200 simulation
+      - name: Run offline $200
+        if: steps.pacific.outputs.run == 'true'
         run: python paper_trader.py --demo --capital 200 > paper-trading-results.txt
 
-      - name: Save simulation results
+      - name: Save simulation
+        if: steps.pacific.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: paper-trading-results
