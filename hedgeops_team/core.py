@@ -1,6 +1,6 @@
 """Deterministic multi-agent decision support; no broker integration."""
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import math
@@ -29,7 +29,7 @@ class Evidence:
     warnings: tuple = ()
 
     def __post_init__(self):
-        if self.action not in ACTIONS or not math.isfinite(self.confidence) or not 0 <= self.confidence <= 1:
+        if self.action not in ACTIONS or isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)) or not math.isfinite(self.confidence) or not 0 <= self.confidence <= 1:
             raise ValueError("invalid evidence")
         if not self.agent_id or not self.evidence_ids:
             raise ValueError("evidence requires provenance")
@@ -43,6 +43,7 @@ class DecisionReport:
     input_digest: str
     suggested_position_pct: float = 0.0
     paper_only: bool = True
+    sell_semantics: str = "not_applicable"
 
     def to_dict(self):
         return asdict(self)
@@ -55,25 +56,31 @@ def _number(value, name, minimum=None):
         raise ValueError(name + " below minimum")
     return value
 
-def _validate(bars, portfolio):
+def _parse_timestamp(value):
+    if not isinstance(value, str):
+        raise ValueError("timestamp must be ISO string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("invalid timestamp") from exc
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else parsed
+
+def _validate(bars, portfolio, expected_bar_interval=None):
     if not isinstance(bars, (list, tuple)) or len(bars) < 2:
         raise ValueError("at least two ordered bars required")
+    if expected_bar_interval is not None and (not isinstance(expected_bar_interval, timedelta) or expected_bar_interval <= timedelta(0)):
+        raise ValueError("expected_bar_interval must be a positive timedelta")
     prices, timestamps = [], []
     for bar in bars:
         if not isinstance(bar, dict):
             raise ValueError("bars must be mappings")
         prices.append(_number(bar.get("close"), "close", 0.000000001))
         if "timestamp" in bar:
-            stamp = bar["timestamp"]
-            if not isinstance(stamp, str):
-                raise ValueError("timestamp must be ISO string")
-            try:
-                parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise ValueError("invalid timestamp") from exc
-            timestamps.append(parsed)
+            timestamps.append(_parse_timestamp(bar["timestamp"]))
     if timestamps and len(timestamps) != len(bars):
         raise ValueError("timestamps must be supplied for all bars or none")
+    if expected_bar_interval is not None and not timestamps:
+        raise ValueError("timestamps required for interval validation")
     if timestamps:
         try:
             ordered = all(a < b for a, b in zip(timestamps, timestamps[1:]))
@@ -81,22 +88,31 @@ def _validate(bars, portfolio):
             raise ValueError("mixed timezone timestamps") from exc
         if not ordered:
             raise ValueError("timestamps must be strictly increasing")
+        if expected_bar_interval is not None and any(b - a != expected_bar_interval for a, b in zip(timestamps, timestamps[1:])):
+            raise ValueError("unexpected bar interval")
     if not isinstance(portfolio, dict):
         raise ValueError("portfolio must be mapping")
     p = {}
     for name in ("equity", "cash", "exposure_pct", "drawdown_pct"):
-        p[name] = _number(portfolio.get(name, 0), name, 0)
+        if name not in portfolio:
+            raise ValueError("missing portfolio field: " + name)
+        p[name] = _number(portfolio[name], name, 0)
     if p["exposure_pct"] > 1 or p["drawdown_pct"] > 1 or p["cash"] > p["equity"]:
         raise ValueError("inconsistent portfolio")
     return prices, p
 
 class HedgeOpsTeam:
-    def __init__(self, strategic_agent=None, risk_limits=None):
+    def __init__(self, strategic_agent=None, risk_limits=None, expected_bar_interval=None):
         self.strategic_agent = strategic_agent
-        self.risk_limits = risk_limits or RiskLimits()
+        if risk_limits is not None and not isinstance(risk_limits, RiskLimits):
+            raise TypeError("risk_limits must be RiskLimits")
+        self.risk_limits = risk_limits if risk_limits is not None else RiskLimits()
+        if expected_bar_interval is not None and (not isinstance(expected_bar_interval, timedelta) or expected_bar_interval <= timedelta(0)):
+            raise ValueError("expected_bar_interval must be a positive timedelta")
+        self.expected_bar_interval = expected_bar_interval
 
     def analyze(self, bars, portfolio):
-        prices, p = _validate(bars, portfolio)
+        prices, p = _validate(bars, portfolio, self.expected_bar_interval)
         digest = sha256(json.dumps({"bars": bars, "portfolio": portfolio}, sort_keys=True, default=str).encode()).hexdigest()
         returns = [b / a - 1 for a, b in zip(prices, prices[1:])]
         mean = sum(returns) / len(returns)
@@ -134,4 +150,5 @@ class HedgeOpsTeam:
             reasons.append("insufficient directional consensus")
         action = "HOLD" if reasons else temporal_action
         size = min(self.risk_limits.max_position_pct, max(0.0, self.risk_limits.max_exposure_pct - p["exposure_pct"])) if action == "BUY" else 0.0
-        return DecisionReport(action, 0.0 if action == "HOLD" else 0.6, tuple(reasons or ("directional consensus; within risk limits",)), tuple(asdict(e) for e in evidence), digest, size)
+        sell_semantics = "directional_signal_only" if action == "SELL" else "not_applicable"
+        return DecisionReport(action, 0.0 if action == "HOLD" else 0.6, tuple(reasons or ("directional consensus; within risk limits",)), tuple(asdict(e) for e in evidence), digest, size, sell_semantics=sell_semantics)
