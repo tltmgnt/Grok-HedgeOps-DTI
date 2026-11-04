@@ -1,0 +1,30 @@
+name: Offline Paper Trading
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paper-trading:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run offline $200 simulation
+        run: python paper_trader.py --demo --capital 200 > paper-trading-results.txt
+
+      - name: Save simulation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-trading-results
+          path: paper-trading-results.txt
+          retention-days: 7
