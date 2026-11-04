@@ -24,7 +24,7 @@ def prices_csv(path):
             yield row.get("date") or str(i + 1), value
 
 def simulate(prices, capital=200.0, fast=5, slow=20, fee=0.001):
-    if capital <= 0 or fast < 1 or slow <= fast or not 0 <= fee < 1:
+    if not math.isfinite(capital) or capital <= 0 or fast < 1 or slow <= fast or not 0 <= fee < 1:
         raise ValueError("Invalid configuration")
     cash, units = float(capital), 0.0
     history, trades = [], []
