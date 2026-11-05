@@ -1,0 +1,29 @@
+name: Paper Opportunity Offline Dry Run (No Orders)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-fixture-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # No Alpaca credentials and no trading-enable repository variables are passed.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run no-network fixture decision rehearsal
+        run: python offline_paper_opportunity_dry_run.py
+      - name: Publish simulation summary
+        run: cat offline-dry-run-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-paper-opportunity-dry-run
+          path: offline-dry-run-output/
+          retention-days: 14
