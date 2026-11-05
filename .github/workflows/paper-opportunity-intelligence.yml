@@ -1,0 +1,53 @@
+name: Paper Opportunity Intelligence (Auto, Disabled by Default)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 19:00 UTC weekdays: 11 a.m. PST / noon PDT; confirm market via Alpaca clock.
+    - cron: '0 19 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-opportunity-auto-trader
+  cancel-in-progress: false
+
+jobs:
+  auto-paper-trade:
+    # Both repo variables must be explicitly configured. Default is NO TRADING.
+    if: ${{ vars.PAPER_AUTO_TRADING_ENABLED == 'true' && vars.PAPER_AUTO_KILL_SWITCH == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run offline safety tests
+        run: python -m unittest discover -s tests -p 'test_paper_opportunity_intelligence.py'
+      - name: Assess opportunity and (if eligible) submit one PAPER order
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED }}
+          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH }}
+        run: python paper_opportunity_intelligence.py --output-dir opportunity-intelligence-output
+      - name: Publish decision summary
+        if: always()
+        run: |
+          if [ -f opportunity-intelligence-output/decision.md ]; then
+            cat opportunity-intelligence-output/decision.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Archive decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-opportunity-intelligence-decision
+          path: opportunity-intelligence-output/
+          retention-days: 30
+          if-no-files-found: ignore
