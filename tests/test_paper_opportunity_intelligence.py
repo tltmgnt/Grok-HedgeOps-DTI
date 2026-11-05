@@ -154,5 +154,56 @@ class OpportunityTests(unittest.TestCase):
             request_json("https://api.alpaca.markets", "/v2/orders", "key", "secret")
 
 
+    def test_five_positions_block_trading(self):
+        def five_positions(*args, **kwargs):
+            if args[1] == "/v2/positions":
+                return [{"symbol": f"STK{i}"} for i in range(5)]
+            return broker(*args, **kwargs)
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false"
+        }, clear=True):
+            result = assess(
+                now=NOW, key="key", secret="secret",
+                get=five_positions,
+                bars_fetch=lambda *a, **k: self.fail("Should not scan")
+            )
+        self.assertEqual(result["decision"], "SKIP")
+        self.assertIn("Position-count cap", result["reason"])
+
+    def test_truncated_order_history_fails_closed(self):
+        def too_many_orders(*args, **kwargs):
+            if args[1] == "/v2/orders":
+                return [{} for _ in range(500)]
+            return broker(*args, **kwargs)
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false"
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "truncated"):
+                assess(now=NOW, key="key", secret="secret",
+                       get=too_many_orders)
+
+    def test_broker_api_failure_never_submits_order(self):
+        calls = []
+
+        def failing_broker(host, path, key, secret, *,
+                           params=None, payload=None):
+            calls.append((host, path, payload))
+            raise RuntimeError("Alpaca request failed")
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false"
+        }, clear=True):
+            with self.assertRaises(RuntimeError):
+                assess(now=NOW, key="key", secret="secret",
+                       get=failing_broker)
+
+        self.assertFalse(any(payload is not None
+                             for _, _, payload in calls))
+
 if __name__ == "__main__":
     unittest.main()
