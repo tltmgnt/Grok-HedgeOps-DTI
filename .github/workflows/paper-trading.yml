@@ -1,6 +1,23 @@
 name: Offline Paper Trading
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Select simulation or Purchase Now (paper request only)"
+        required: true
+        type: choice
+        default: simulate
+        options:
+          - simulate
+          - purchase_now
+      symbol:
+        description: "Uppercase ticker for purchase request (e.g. SPY)"
+        required: false
+        type: string
+      notional_usd:
+        description: "Demo purchase amount in USD (greater than 0, maximum 200)"
+        required: false
+        type: string
   schedule:
     - cron: '0 16 * * *'
     - cron: '0 17 * * *'
@@ -10,7 +27,34 @@ concurrency:
   group: offline-paper-trading
   cancel-in-progress: false
 jobs:
+  purchase-now:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'purchase_now'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Prepare paper-only purchase request
+        env:
+          PURCHASE_SYMBOL: ${{ inputs.symbol }}
+          PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
+        run: |
+          python purchase_now.py --symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --output purchase-request.json
+      - name: Upload request for human review
+        uses: actions/upload-artifact@v7
+        with:
+          name: purchase-now-paper-request
+          path: purchase-request.json
+          retention-days: 7
+          if-no-files-found: error
   paper-trading:
+    if: github.event_name == 'schedule' || inputs.action != 'purchase_now'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
