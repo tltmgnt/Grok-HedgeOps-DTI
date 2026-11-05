@@ -152,6 +152,7 @@ def main(argv=None):
             warning_pct=args.warning_pct, critical_pct=args.critical_pct,
         )
         args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        notify_webhook(report, os.getenv("HEDGEOPS_ALERT_WEBHOOK", ""))
     except (ValueError, RuntimeError, OSError) as exc:
         parser.exit(2, f"Monitoring failed: {exc}\n")
     print(f"Warnings: {report['warning_count']}; critical: {report['critical_count']}")
