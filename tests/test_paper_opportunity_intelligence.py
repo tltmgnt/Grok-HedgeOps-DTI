@@ -83,8 +83,12 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(news_evidence("HD", "key", "secret", now=NOW, get=no_news), [])
 
     def test_execute_requires_enabled_and_no_duplicate(self):
+        from zoneinfo import ZoneInfo
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
         decision = {"decision": "READY", "symbol": "HD", "notional_usd": "10.00",
-                    "client_order_id": "hedgeopsauto-20261104-hd"}
+                        "client_order_id": order_id(today, "HD")}
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(execute(decision, key="key", secret="secret",
                                      get=lambda *a, **k: self.fail("Network"))["decision"], "SKIP")
@@ -97,8 +101,12 @@ class OpportunityTests(unittest.TestCase):
             self.assertEqual(execute(decision, key="key", secret="secret", get=existing)["decision"], "SKIP")
 
     def test_single_post_paper_only(self):
+        from zoneinfo import ZoneInfo
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
         decision = {"decision": "READY", "symbol": "HD", "notional_usd": "10.00",
-                    "client_order_id": "hedgeopsauto-20261104-hd"}
+                    "client_order_id": order_id(today, "HD")}
         calls = []
         def get(host, path, key, secret, *, params=None, payload=None):
             calls.append((host, path, payload))
@@ -137,16 +145,31 @@ class OpportunityTests(unittest.TestCase):
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             result = assess(now=NOW, key="key", secret="secret", get=low_cash)
         self.assertEqual(result["decision"], "SKIP")
-
+        
     def test_manual_buy_blocks_daily_cap(self):
         def manual_buy(*args, **kwargs):
             if args[1] == "/v2/orders":
-                return [{"side": "buy", "status": "filled", "notional": "5",
-                         "submitted_at": "2026-11-04T15:00:00Z"}]
+                return [{
+                    "side": "buy",
+                    "status": "filled",
+                    "notional": "95",
+                    "submitted_at": "2026-11-04T15:00:00Z",
+                }]
             return broker(*args, **kwargs)
-        with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
-                                     "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
-            result = assess(now=NOW, key="key", secret="secret", get=manual_buy)
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false",
+        }, clear=True):
+            result = assess(
+                now=NOW,
+                key="key",
+                secret="secret",
+                get=manual_buy,
+                bars_fetch=lambda *a, **k: self.fail("Should not scan"),
+            )
+
+        self.assertEqual(result["decision"], "SKIP")
         self.assertIn("Daily buy commitment", result["reason"])
 
     def test_host_allowlist(self):
@@ -274,6 +297,29 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(result["decision"], "SKIP")
         self.assertEqual(calls, [("/v2/clock", None)])
 
+    def test_daily_cap_100_boundary(self):
+        from paper_opportunity_intelligence import MAX_DAILY
 
+        self.assertEqual(MAX_DAILY, 100)
+
+        for spent, should_block in [
+            ("90.00", False),
+            ("90.01", True),
+            ("100.00", True),
+        ]:
+            with self.subTest(spent=spent):
+                remaining = MAX_DAILY - daily_buy_commitments(
+                    [{
+                        "side": "buy",
+                        "status": "filled",
+                        "notional": spent,
+                        "submitted_at": "2026-11-04T15:00:00Z",
+                    }],
+                    date(2026, 11, 4),
+                )
+                self.assertEqual(
+                    remaining < MAX_ORDER,
+                    should_block,
+                )
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,7 @@ PAPER = "https://paper-api.alpaca.markets"
 DATA = "https://data.alpaca.markets"
 PREFIX = "hedgeopsauto"
 MAX_ORDER = Decimal("10.00")
-MAX_DAILY = Decimal("10.00")
+MAX_DAILY = Decimal("100.00")
 MIN_CASH = Decimal("100.00")
 MAX_POSITIONS = 5
 CATALYST_WORDS = ("earnings", "guidance", "revenue", "results", "contract",
@@ -152,7 +152,8 @@ def broker_risk_check(*, now, key, secret, get=request_json):
     trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
     # Request all orders, not only a recent window; fail closed on truncation.
     orders = get(PAPER, "/v2/orders", key, secret,
-                 params={"status": "all", "limit": 500, "direction": "desc"})
+                 params={"status": "all", "limit": 500, "direction": "desc",
+        "after": datetime.combine(trading_day, datetime.min.time(), tzinfo=ZoneInfo("America/New_York")).isoformat()})
     if not isinstance(orders, list) or len(orders) >= 500:
         raise ValueError("Order history unavailable or truncated; fail closed")
     active = {"new", "accepted", "pending_new", "partially_filled", "held",
