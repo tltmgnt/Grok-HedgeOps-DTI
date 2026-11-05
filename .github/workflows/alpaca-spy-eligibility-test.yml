@@ -1,0 +1,62 @@
+name: Alpaca SPY Read-Only Eligibility Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-spy-eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check SPY asset flags (GET only; no orders)
+        shell: bash
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          key = os.environ.get("ALPACA_API_KEY", "")
+          secret = os.environ.get("ALPACA_API_SECRET", "")
+          if not key or not secret:
+              raise SystemExit("Missing Alpaca paper API credentials.")
+
+          request = Request(
+              "https://paper-api.alpaca.markets/v2/assets/SPY",
+              headers={
+                  "APCA-API-KEY-ID": key,
+                  "APCA-API-SECRET-KEY": secret,
+                  "Accept": "application/json",
+              },
+              method="GET",
+          )
+          try:
+              with urlopen(request, timeout=20) as response:
+                  asset = json.load(response)
+          except HTTPError as exc:
+              raise SystemExit(f"Alpaca asset lookup failed (HTTP {exc.code}).") from None
+          except (URLError, TimeoutError):
+              raise SystemExit("Unable to reach Alpaca paper asset API.") from None
+
+          if not isinstance(asset, dict) or asset.get("symbol") != "SPY":
+              raise SystemExit("Unexpected asset response; SPY not verified.")
+
+          tradable = asset.get("tradable") is True
+          fractionable = asset.get("fractionable") is True
+          active = asset.get("status") == "active"
+          print("SPY asset status:", "active" if active else "not confirmed active")
+          print("SPY tradable:", tradable)
+          print("SPY fractionable:", fractionable)
+          print("Read-only GET completed. No orders submitted.")
+          if not (active and tradable and fractionable):
+              raise SystemExit("SPY is not confirmed eligible for a fractional paper order.")
+          print("PASS: SPY supports fractional notional paper orders.")
+          PY
