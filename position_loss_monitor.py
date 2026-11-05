@@ -129,15 +129,13 @@ def main(argv=None):
         args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except (ValueError, RuntimeError, OSError) as exc:
         parser.exit(2, f"Monitoring failed: {exc}\n")
-    print(f"Positions: {report['position_count']}; warnings: {report['warning_count']}; critical: {report['critical_count']}")
+    print(f"Warnings: {report['warning_count']}; critical: {report['critical_count']}")
     print("READ ONLY — NO ORDER SUBMITTED")
     if os.getenv("GITHUB_STEP_SUMMARY"):
         lines = ["## Alpaca position-loss monitor", "",
-                 f"Mode: {args.mode}; positions: {report['position_count']}; warnings: {report['warning_count']}; critical: {report['critical_count']}",
-                 "", "| Symbol | Unrealized loss | Severity |", "|---|---:|---|"]
-        for p in report["positions"]:
-            lines.append(f"| {p['symbol']} | {p['unrealized_loss_pct']:.2f}% | {p['severity']} |")
-        lines += ["", "Read-only snapshot. No orders placed. Broker quotes may be delayed."]
+                 f"Warnings: {report['warning_count']}; critical: {report['critical_count']}",
+                 "", "Holdings and amounts are omitted from public GitHub logs.",
+                 "Read-only snapshot. No orders placed. Broker quotes may be delayed."]
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write("\n".join(lines) + "\n")
     return 0
