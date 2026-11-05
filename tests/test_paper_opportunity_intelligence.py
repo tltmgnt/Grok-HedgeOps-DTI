@@ -174,6 +174,36 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(result["decision"], "SKIP")
         self.assertIn("Daily buy commitment", result["reason"])
 
+    def test_allocation_modes_are_opt_in(self):
+        from paper_opportunity_intelligence import allocation_policy
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(allocation_policy()[0], "legacy")
+        for mode, amount, attempts in [("diversified", "10.00", 10),
+                                       ("single", "100.00", 1)]:
+            with patch.dict(os.environ, {"PAPER_ALLOCATION_MODE": mode}, clear=True):
+                self.assertEqual(allocation_policy()[1:], (MAX_ORDER if mode == "diversified" else __import__("decimal").Decimal("100.00"), attempts))
+        with patch.dict(os.environ, {"PAPER_ALLOCATION_MODE": "unknown"}, clear=True):
+            with self.assertRaises(ValueError):
+                allocation_policy()
+
+    def test_diversified_respects_shared_daily_cap(self):
+        from paper_opportunity_intelligence import broker_risk_check
+        def mock_get(host, path, key, secret, *, params=None, payload=None):
+            if path == "/v2/account":
+                return {"status": "ACTIVE", "trading_blocked": False, "account_blocked": False,
+                        "cash": "1000", "buying_power": "1000"}
+            if path == "/v2/positions":
+                return []
+            if path == "/v2/orders" and params["status"] == "open":
+                return []
+            if path == "/v2/orders":
+                return [{"side": "buy", "status": "filled", "notional": "95",
+                         "submitted_at": "2026-11-04T15:00:00Z"}]
+            self.fail(path)
+        with patch.dict(os.environ, {"PAPER_ALLOCATION_MODE": "diversified"}, clear=True):
+            self.assertIn("Daily buy commitment", broker_risk_check(
+                now=NOW, key="k", secret="s", get=mock_get))
+
     def test_host_allowlist(self):
         with self.assertRaises(ValueError):
             request_json("https://api.alpaca.markets", "/v2/orders", "key", "secret")
