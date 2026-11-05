@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 
 def _number(value, field):
@@ -111,6 +112,30 @@ def monitor(*, mode, key, secret, warning_pct=5.0, critical_pct=10.0):
         "order_submission_enabled": False,
         "disclaimer": "Read-only broker snapshot; not continuous monitoring, a stop-loss order, or a guaranteed exit.",
     }
+
+
+def notify_webhook(report, url):
+    """Optional private webhook. Sends only alerts; do not use a public endpoint."""
+    if not url:
+        return False
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("notification webhook must be an HTTPS URL without embedded credentials")
+    alerts = [p for p in report["positions"] if p["severity"] != "ok"]
+    if not alerts:
+        return False
+    payload = {"text": "HedgeOps position-loss alerts: " +
+               "; ".join(f"{p['symbol']}: {p['unrealized_loss_pct']:.2f}% loss ({p['severity']})"
+                         for p in alerts)}
+    req = Request(url, data=json.dumps(payload).encode("utf-8"),
+                  headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=10) as response:  # nosec B310 - HTTPS only, operator-configured destination
+            if response.status >= 300:
+                raise RuntimeError("notification endpoint rejected alert")
+    except (HTTPError, URLError, TimeoutError):
+        raise RuntimeError("private notification failed; check endpoint") from None
+    return True
 
 
 def main(argv=None):
