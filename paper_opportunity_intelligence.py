@@ -27,6 +27,18 @@ MAX_ORDER = Decimal("10.00")
 MAX_DAILY = Decimal("100.00")
 MIN_CASH = Decimal("100.00")
 MAX_POSITIONS = 5
+# Explicit opt-in allocation modes; legacy behavior remains the default.
+ALLOCATION_MODES = {"legacy": (Decimal("10.00"), 1),
+                    "diversified": (Decimal("10.00"), 10),
+                    "single": (Decimal("100.00"), 1)}
+
+
+def allocation_policy():
+    mode = os.environ.get("PAPER_ALLOCATION_MODE", "legacy")
+    if mode not in ALLOCATION_MODES:
+        raise ValueError("Invalid paper allocation mode; fail closed")
+    return mode, *ALLOCATION_MODES[mode]
+
 CATALYST_WORDS = ("earnings", "guidance", "revenue", "results", "contract",
                   "partnership", "launch", "approval", "upgrade", "outlook")
 
@@ -134,13 +146,14 @@ def daily_buy_commitments(orders, trading_day):
 
 
 def broker_risk_check(*, now, key, secret, get=request_json):
+    mode, order_amount, max_attempts = allocation_policy()
     """Reconcile account and orders; return a fail-closed reason or None."""
     account = get(PAPER, "/v2/account", key, secret)
     if (not isinstance(account, dict) or account.get("status") != "ACTIVE"
         or account.get("trading_blocked") is not False
         or account.get("account_blocked") is not False):
         return "Paper account not confirmed active and unblocked"
-    if min(money(account.get("cash")), money(account.get("buying_power"))) < MIN_CASH + MAX_ORDER:
+    if min(money(account.get("cash")), money(account.get("buying_power"))) < MIN_CASH + order_amount:
         return "Insufficient post-order cash reserve or buying power"
 
     positions = get(PAPER, "/v2/positions", key, secret)
@@ -178,10 +191,10 @@ def broker_risk_check(*, now, key, secret, get=request_json):
     if any(o.get("side") == "buy" and o.get("status") in active for o in orders):
         return "Existing open buy order"
     spent = daily_buy_commitments(orders, trading_day)
-    if spent + MAX_ORDER > MAX_DAILY:
+    if spent + order_amount > MAX_DAILY:
         return "Daily buy commitment cap reached"
     today_prefix = f"{PREFIX}-{trading_day:%Y%m%d}-"
-    if any(str(o.get("client_order_id", "")).startswith(today_prefix) for o in orders):
+    if sum(str(o.get("client_order_id", "")).startswith(today_prefix) for o in orders) >= max_attempts:
         return "Daily automated order-attempt cap reached"
     return None
 
@@ -209,11 +222,12 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
     bars = bars_fetch(DEFAULT_SYMBOLS, key, secret, now=now)
     report = build_report(DEFAULT_SYMBOLS, bars, generated_at=now.isoformat())
     candidate = eligible_candidate(report)
+    # Select the highest-scoring eligible candidate not already held.
+    candidate = next((c for c in report["candidates"]
+                      if eligible_candidate({"candidates": [c]}) and c["symbol"] not in held), None)
     if candidate is None:
-        return {"decision": "SKIP", "reason": "No candidate met conservative risk thresholds"}
+        return {"decision": "SKIP", "reason": "No unheld candidate met conservative risk thresholds"}
     symbol = candidate["symbol"]
-    if symbol in held:
-        return {"decision": "SKIP", "reason": "Candidate already held"}
 
     try:
         last_bar = datetime.fromisoformat(candidate["last_bar_utc"].replace("Z", "+00:00"))
@@ -232,7 +246,8 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
     if not evidence:
         return {"decision": "SKIP", "reason": "No recent identifiable headline catalyst"}
 
-    return {"decision": "READY", "symbol": symbol, "notional_usd": str(MAX_ORDER),
+    mode, order_amount, _ = allocation_policy()
+    return {"decision": "READY", "symbol": symbol, "notional_usd": str(order_amount),
             "client_order_id": order_id(trading_day, symbol),
             "score": candidate["score"], "catalyst_headlines": evidence,
             "reason": "Deterministic risk and news-presence gates passed"}
@@ -253,8 +268,9 @@ def execute(decision, *, key, secret, get=request_json):
         ).date(),
         symbol,
     )
+    mode, order_amount, _ = allocation_policy()
     if (
-        money(decision["notional_usd"]) != MAX_ORDER
+        money(decision["notional_usd"]) != order_amount
         or client_id != expected_id
     ):
         raise ValueError("Unsafe order parameters")
@@ -280,15 +296,15 @@ def execute(decision, *, key, secret, get=request_json):
         return {"decision": "SKIP", "reason": "Order already exists", "broker_status": existing.get("status")}
     # No retry on POST, including network timeouts. Inspect Alpaca before rerunning.
     order = get(PAPER, "/v2/orders", key, secret,
-                payload={"symbol": symbol, "notional": str(MAX_ORDER),
+                payload={"symbol": symbol, "notional": str(order_amount),
                          "side": "buy", "type": "market", "time_in_force": "day",
                          "client_order_id": client_id})
     if (not isinstance(order, dict) or not order.get("id")
         or order.get("symbol") != symbol or order.get("side") != "buy"
         or order.get("client_order_id") != client_id
-        or money(order.get("notional")) != MAX_ORDER):
+        or money(order.get("notional")) != order_amount):
         raise RuntimeError("Order acknowledgment ambiguous; check Alpaca before retrying")
-    return {"decision": "SUBMITTED", "symbol": symbol, "notional_usd": str(MAX_ORDER),
+    return {"decision": "SUBMITTED", "symbol": symbol, "notional_usd": str(order_amount),
             "client_order_id": client_id, "broker_status": order.get("status"),
             "order_filled": order.get("status") == "filled"}
 
