@@ -366,7 +366,7 @@ class OpportunityTests(unittest.TestCase):
                     self.assertIn("Daily buy commitment", reason)
                 else:
                     self.assertIsNone(reason)
-                    def test_midnight_order_history_boundary(self):
+         def test_midnight_order_history_boundary(self):
         from paper_opportunity_intelligence import broker_risk_check
         from zoneinfo import ZoneInfo
         from datetime import timedelta
