@@ -73,6 +73,7 @@ jobs:
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED }}
           PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH }}
+          PAPER_ALLOCATION_MODE: ${{ vars.PAPER_ALLOCATION_MODE || 'legacy' }}
         run: python paper_opportunity_intelligence.py --output-dir opportunity-intelligence-output
       - name: Publish decision summary
         if: always()
