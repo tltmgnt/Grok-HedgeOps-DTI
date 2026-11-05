@@ -356,8 +356,11 @@ class OpportunityTests(unittest.TestCase):
                     self.fail(f"Unexpected broker path: {path}")
 
                 reason = broker_risk_check(
-                    NOW, "key", "secret", fake_broker
-                )
+                    now=NOW,
+                    key="key",
+                    secret="secret",
+                    get=fake_broker,
+                 )
 
                 if should_block:
                     self.assertIn("Daily buy commitment", reason)
