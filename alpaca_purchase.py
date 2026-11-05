@@ -25,7 +25,7 @@ def _request(base: str, path: str, key: str, secret: str, *, payload=None):
         "Content-Type": "application/json", "Accept": "application/json",
     }, method="POST" if body is not None else "GET")
     try:
-        with urlopen(request, timeout=15) as response:
+        with urlopen(request, timeout=15) as response:  # nosec B310 - fixed HTTPS Alpaca host, validated path
             return json.load(response)
     except HTTPError as exc:
         # Never print raw broker response, which may contain sensitive data.
@@ -97,6 +97,8 @@ def main(argv=None):
     parser.add_argument("--request-id", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.mode == "live" and os.getenv("ALPACA_LIVE_TRADING_ENABLED") != "true":
+            raise PermissionError("live trading is disabled; configure ALPACA_LIVE_TRADING_ENABLED=true in protected environment")
         result = purchase_alpaca(
             args.symbol, args.notional, mode=args.mode,
             confirmation=os.getenv("LIVE_PURCHASE_CONFIRMATION", ""),
