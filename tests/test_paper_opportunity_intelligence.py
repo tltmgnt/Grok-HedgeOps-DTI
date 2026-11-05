@@ -321,5 +321,48 @@ class OpportunityTests(unittest.TestCase):
                     remaining < MAX_ORDER,
                     should_block,
                 )
+
+    def test_daily_cap_enforced_by_broker_risk_check(self):
+        from paper_opportunity_intelligence import broker_risk_check
+
+        for spent, should_block in [
+            ("90.00", False),
+            ("90.01", True),
+            ("100.00", True),
+        ]:
+            with self.subTest(spent=spent):
+                def fake_broker(host, path, key, secret, *,
+                                params=None, payload=None):
+                    self.assertEqual(host, PAPER)
+                    self.assertIsNone(payload)
+
+                    if path == "/v2/account":
+                        return {
+                            "status": "ACTIVE",
+                            "trading_blocked": False,
+                            "account_blocked": False,
+                            "cash": "1000",
+                            "buying_power": "1000",
+                        }
+                    if path == "/v2/positions":
+                        return []
+                    if path == "/v2/orders":
+                        return [{
+                            "side": "buy",
+                            "status": "filled",
+                            "notional": spent,
+                            "submitted_at": "2026-11-04T15:00:00Z",
+                        }]
+                    self.fail(f"Unexpected broker path: {path}")
+
+                reason = broker_risk_check(
+                    NOW, "key", "secret", fake_broker
+                )
+
+                if should_block:
+                    self.assertIn("Daily buy commitment", reason)
+                else:
+                    self.assertIsNone(reason)
+                    
 if __name__ == "__main__":
     unittest.main()
