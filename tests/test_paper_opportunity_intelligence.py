@@ -137,16 +137,31 @@ class OpportunityTests(unittest.TestCase):
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             result = assess(now=NOW, key="key", secret="secret", get=low_cash)
         self.assertEqual(result["decision"], "SKIP")
-
-    def test_manual_buy_blocks_daily_cap(self):
+        
+     def test_manual_buy_blocks_daily_cap(self):
         def manual_buy(*args, **kwargs):
             if args[1] == "/v2/orders":
-                return [{"side": "buy", "status": "filled", "notional": "5",
-                         "submitted_at": "2026-11-04T15:00:00Z"}]
+                return [{
+                    "side": "buy",
+                    "status": "filled",
+                    "notional": "95",
+                    "submitted_at": "2026-11-04T15:00:00Z",
+                }]
             return broker(*args, **kwargs)
-        with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
-                                     "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
-            result = assess(now=NOW, key="key", secret="secret", get=manual_buy)
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false",
+        }, clear=True):
+            result = assess(
+                now=NOW,
+                key="key",
+                secret="secret",
+                get=manual_buy,
+                bars_fetch=lambda *a, **k: self.fail("Should not scan"),
+            )
+
+        self.assertEqual(result["decision"], "SKIP")
         self.assertIn("Daily buy commitment", result["reason"])
 
     def test_host_allowlist(self):
