@@ -422,5 +422,48 @@ class OpportunityTests(unittest.TestCase):
         self.assertTrue(seen_orders)
         self.assertIn("Daily buy commitment cap reached", reason)
         
+    def test_monitor_only_bypasses_trade_flags_without_post(self):
+        calls = []
+
+        def read_only_broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append((host, path, payload))
+            self.assertIsNone(payload, "Monitoring must never POST")
+            if path == "/v2/clock":
+                return {"is_open": False}
+            self.fail(f"Unexpected broker path: {path}")
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "false",
+            "PAPER_AUTO_KILL_SWITCH": "true",
+        }, clear=True):
+            result = assess(now=NOW, key="key", secret="secret",
+                            get=read_only_broker, monitor_only=True)
+        self.assertEqual(result["decision"], "SKIP")
+        self.assertIn("Market closed", result["reason"])
+        self.assertEqual(calls, [(PAPER, "/v2/clock", None)])
+
+    def test_monitor_only_main_never_executes_even_if_ready(self):
+        import tempfile
+        from pathlib import Path
+        from paper_opportunity_intelligence import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {
+                "PAPER_AUTO_TRADING_ENABLED": "false",
+                "PAPER_AUTO_KILL_SWITCH": "true",
+            }, clear=True):
+                with patch("paper_opportunity_intelligence.assess",
+                           return_value={"decision": "READY", "symbol": "HD"}) as mock_assess:
+                    with patch("paper_opportunity_intelligence.execute",
+                               side_effect=AssertionError("Never execute orders")) as mock_execute:
+                        code = main(["--monitor-only", "--output-dir", tmp])
+            self.assertEqual(code, 0)
+            mock_assess.assert_called_once()
+            self.assertTrue(mock_assess.call_args.kwargs["monitor_only"])
+            mock_execute.assert_not_called()
+            import json
+            result = json.loads((Path(tmp) / "decision.json").read_text())
+            self.assertEqual(result["decision"], "MONITOR_READY")
+
 if __name__ == "__main__":
     unittest.main()
