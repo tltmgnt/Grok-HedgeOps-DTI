@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Select simulation or Purchase Now (paper request only)"
+        description: "Select offline simulation, paper request, or approved paper order"
         required: true
         type: choice
         default: simulate
@@ -11,13 +11,8 @@ on:
           - simulate
           - purchase_now
           - alpaca_paper_buy
-          - alpaca_live_buy
       symbol:
         description: "Uppercase ticker for purchase request (e.g. SPY)"
-        required: false
-        type: string
-      confirmation:
-        description: "For Alpaca live only: type I AUTHORIZE LIVE BUY"
         required: false
         type: string
       notional_usd:
@@ -34,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   alpaca-purchase:
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'alpaca_paper_buy' || inputs.action == 'alpaca_live_buy')
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'alpaca_paper_buy'
     environment: broker-purchase-approval
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -45,20 +40,15 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Submit explicitly authorized Alpaca order
+      - name: Submit approved Alpaca paper order
         env:
-          ALPACA_LIVE_TRADING_ENABLED: ${{ vars.ALPACA_LIVE_TRADING_ENABLED }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          LIVE_PURCHASE_CONFIRMATION: ${{ inputs.confirmation }}
           PURCHASE_SYMBOL: ${{ inputs.symbol }}
           PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
-          PURCHASE_MODE: ${{ inputs.action }}
           RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          if [ "$PURCHASE_MODE" = "alpaca_live_buy" ]; then MODE=live; else MODE=paper; fi
-          python alpaca_purchase.py --mode "$MODE" --symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --request-id "hedgeops-$RUN_ID-$RUN_ATTEMPT" > broker-order-result.json
+          python alpaca_purchase.py --mode paper --symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --request-id "hedgeops-$RUN_ID" > broker-order-result.json
       - name: Upload broker acknowledgement
         uses: actions/upload-artifact@v7
         with:
