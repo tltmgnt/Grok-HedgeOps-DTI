@@ -67,13 +67,15 @@ jobs:
           python-version: '3.12'
       - name: Run offline safety tests
         run: python -m unittest discover -s tests -p 'test_paper_opportunity_intelligence.py'
+      # Default to diversified $10 orders; explicit repository variable can override.
+      # Existing trading enable/kill-switch gates remain mandatory.
       - name: Assess opportunity and (if eligible) submit one PAPER order
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED }}
           PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH }}
-          PAPER_ALLOCATION_MODE: ${{ vars.PAPER_ALLOCATION_MODE || 'legacy' }}
+          PAPER_ALLOCATION_MODE: ${{ vars.PAPER_ALLOCATION_MODE || 'diversified' }}
         run: python paper_opportunity_intelligence.py --output-dir opportunity-intelligence-output
       - name: Publish decision summary
         if: always()
