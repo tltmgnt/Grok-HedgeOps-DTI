@@ -29,6 +29,12 @@ python agent.py "Evaluate the risks and timing of launching a new product."
 
 The agent requests a JSON report with observations, evidence, assumptions, gaps, options, risks, recommendations and verification conditions. JSON parsing is implemented, but model output is not yet schema-validated; malformed responses may fail. Outputs are hypotheses, not verified facts.
 
+## Purchase Now — manual paper request
+
+GitHub Actions → **Offline Paper Trading** → **Run workflow** → choose `purchase_now`, enter an uppercase `symbol` and `notional_usd` (up to $200). Download the `purchase-now-paper-request` JSON artifact to review the proposed purchase intent. Run `simulate` instead to execute the existing offline synthetic-price simulation.
+
+This creates a **pending human-review request only**. It does **not** buy securities, submit a simulated broker order, check quotes or balances, connect to exchanges, or act on a trading signal. No broker credentials are used. For CLI use: `python purchase_now.py --symbol SPY --notional 25 --output purchase-request.json`. See [paper-trading documentation](docs/PAPER_TRADING.md).
+
 ## Planned architecture
 
 Orchestrator Ω → Temporal / Capacity / Strategy / Risk / Hedge / Contrarian / Red-Team agents → Evidence-based Arbitrator Ω → Human-approved decision → Observation and feedback.
