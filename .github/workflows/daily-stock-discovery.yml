@@ -3,7 +3,7 @@ name: Daily Stock Discovery (Read Only)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 22 * * 1-5'
+    - cron: '30 23 * * 1-5'
 
 permissions:
   contents: read
