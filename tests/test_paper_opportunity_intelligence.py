@@ -148,6 +148,8 @@ class OpportunityTests(unittest.TestCase):
         
     def test_manual_buy_blocks_daily_cap(self):
         def manual_buy(*args, **kwargs):
+            if args[1] == "/v2/orders" and kwargs.get("params", {}).get("status") == "open":
+                return []
             if args[1] == "/v2/orders":
                 return [{
                     "side": "buy",
