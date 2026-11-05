@@ -101,6 +101,73 @@ def eligible_candidate(report):
     return None
 
 
+def daily_buy_commitments(orders, trading_day):
+    """Conservatively reserve the full notional of every buy submitted today.
+
+    Missing notional/creation timestamps are not safely reconcilable: fail closed.
+    """
+    start = datetime.combine(trading_day, datetime.min.time(), ZoneInfo("America/New_York"))
+    end = start + timedelta(days=1)
+    total = Decimal("0")
+    for order in orders:
+        if not isinstance(order, dict):
+            raise ValueError("Malformed broker order")
+        if order.get("side") != "buy":
+            continue
+        submitted = order.get("submitted_at") or order.get("created_at")
+        if not isinstance(submitted, str):
+            raise ValueError("Buy order timestamp unavailable")
+        try:
+            timestamp = datetime.fromisoformat(submitted.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("Invalid buy order timestamp") from None
+        if timestamp.tzinfo is None:
+            raise ValueError("Buy order timezone unavailable")
+        if not start <= timestamp.astimezone(ZoneInfo("America/New_York")) < end:
+            continue
+        notional = order.get("notional")
+        if notional is None:
+            # Quantity-based orders cannot be safely bounded from this response.
+            raise ValueError("Buy order notional unavailable; fail closed")
+        total += money(notional)
+    return total
+
+
+def broker_risk_check(*, now, key, secret, get=request_json):
+    """Reconcile account and orders; return a fail-closed reason or None."""
+    account = get(PAPER, "/v2/account", key, secret)
+    if (not isinstance(account, dict) or account.get("status") != "ACTIVE"
+        or account.get("trading_blocked") is not False
+        or account.get("account_blocked") is not False):
+        return "Paper account not confirmed active and unblocked"
+    if min(money(account.get("cash")), money(account.get("buying_power"))) < MIN_CASH + MAX_ORDER:
+        return "Insufficient post-order cash reserve or buying power"
+
+    positions = get(PAPER, "/v2/positions", key, secret)
+    if not isinstance(positions, list) or any(not isinstance(p, dict) for p in positions):
+        raise ValueError("Positions response unavailable")
+    if len(positions) >= MAX_POSITIONS:
+        return "Position-count cap reached"
+
+    trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
+    # Request all orders, not only a recent window; fail closed on truncation.
+    orders = get(PAPER, "/v2/orders", key, secret,
+                 params={"status": "all", "limit": 500, "direction": "desc"})
+    if not isinstance(orders, list) or len(orders) >= 500:
+        raise ValueError("Order history unavailable or truncated; fail closed")
+    active = {"new", "accepted", "pending_new", "partially_filled", "held",
+              "accepted_for_bidding", "pending_replace", "pending_cancel"}
+    if any(o.get("side") == "buy" and o.get("status") in active for o in orders):
+        return "Existing open buy order"
+    spent = daily_buy_commitments(orders, trading_day)
+    if spent + MAX_ORDER > MAX_DAILY:
+        return "Daily buy commitment cap reached"
+    today_prefix = f"{PREFIX}-{trading_day:%Y%m%d}-"
+    if any(str(o.get("client_order_id", "")).startswith(today_prefix) for o in orders):
+        return "Daily automated order-attempt cap reached"
+    return None
+
+
 def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars):
     """Return a decision. No orders are submitted in this function."""
     if os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true":
@@ -114,42 +181,12 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars):
     if not isinstance(clock, dict) or clock.get("is_open") is not True:
         return {"decision": "SKIP", "reason": "Market closed or clock unavailable"}
 
-    account = get(PAPER, "/v2/account", key, secret)
-    if (not isinstance(account, dict) or account.get("status") != "ACTIVE"
-        or account.get("trading_blocked") is not False
-        or account.get("account_blocked") is not False):
-        return {"decision": "SKIP", "reason": "Paper account not confirmed active and unblocked"}
-    if min(money(account.get("cash")), money(account.get("buying_power"))) < MIN_CASH:
-        return {"decision": "SKIP", "reason": "Insufficient cash reserve or buying power"}
-
+    reason = broker_risk_check(now=now, key=key, secret=secret, get=get)
+    if reason:
+        return {"decision": "SKIP", "reason": reason}
     positions = get(PAPER, "/v2/positions", key, secret)
-    if not isinstance(positions, list):
-        raise ValueError("Positions response unavailable")
-    if len(positions) >= MAX_POSITIONS:
-        return {"decision": "SKIP", "reason": "Position-count cap reached"}
-    held = {p.get("symbol") for p in positions if isinstance(p, dict)}
-
+    held = {p["symbol"] for p in positions if isinstance(p.get("symbol"), str)}
     trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
-    after = trading_day.isoformat() + "T00:00:00-05:00"
-    # Look back 2 days to include open orders from previous sessions.
-    after = (trading_day - timedelta(days=2)).isoformat() + "T00:00:00Z"
-    orders = get(PAPER, "/v2/orders", key, secret,
-                 params={"status": "all", "after": after, "limit": 500, "direction": "desc"})
-    if not isinstance(orders, list) or len(orders) >= 500:
-        raise ValueError("Order history unavailable or truncated; fail closed")
-    active_status = {"new", "accepted", "pending_new", "partially_filled",
-                     "held", "accepted_for_bidding", "pending_replace", "pending_cancel"}
-    open_symbols = {o.get("symbol") for o in orders if isinstance(o, dict)
-                    and o.get("status") in active_status}
-    if any(o.get("side") == "buy" and o.get("status") in active_status
-           for o in orders if isinstance(o, dict)):
-        return {"decision": "SKIP", "reason": "Existing open buy order"}
-    today_prefix = f"{PREFIX}-{trading_day:%Y%m%d}-"
-    automated_today = [o for o in orders if isinstance(o, dict)
-                       and str(o.get("client_order_id", "")).startswith(today_prefix)]
-    # Count attempted orders, including cancelled/rejected, to prevent repeated attempts.
-    if automated_today:
-        return {"decision": "SKIP", "reason": "Daily automated order-attempt cap reached"}
 
     bars = bars_fetch(DEFAULT_SYMBOLS, key, secret, now=now)
     report = build_report(DEFAULT_SYMBOLS, bars, generated_at=now.isoformat())
@@ -157,8 +194,8 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars):
     if candidate is None:
         return {"decision": "SKIP", "reason": "No candidate met conservative risk thresholds"}
     symbol = candidate["symbol"]
-    if symbol in held or symbol in open_symbols:
-        return {"decision": "SKIP", "reason": "Candidate already held or has open order"}
+    if symbol in held:
+        return {"decision": "SKIP", "reason": "Candidate already held"}
 
     try:
         last_bar = datetime.fromisoformat(candidate["last_bar_utc"].replace("Z", "+00:00"))
@@ -193,6 +230,10 @@ def execute(decision, *, key, secret, get=request_json):
     client_id = decision["client_order_id"]
     if money(decision["notional_usd"]) != MAX_ORDER or not client_id.startswith(PREFIX + "-"):
         raise ValueError("Unsafe order parameters")
+    # Reconcile account and today's broker commitments immediately before POST.
+    reason = broker_risk_check(now=datetime.now(timezone.utc), key=key, secret=secret, get=get)
+    if reason:
+        return {"decision": "SKIP", "reason": reason}
     # Check broker idempotency key before sending. A 404 is the only allowed absent result.
     try:
         existing = get(PAPER, "/v2/orders:by_client_order_id", key, secret,
@@ -207,7 +248,10 @@ def execute(decision, *, key, secret, get=request_json):
                 payload={"symbol": symbol, "notional": str(MAX_ORDER),
                          "side": "buy", "type": "market", "time_in_force": "day",
                          "client_order_id": client_id})
-    if not isinstance(order, dict) or not order.get("id"):
+    if (not isinstance(order, dict) or not order.get("id")
+        or order.get("symbol") != symbol or order.get("side") != "buy"
+        or order.get("client_order_id") != client_id
+        or money(order.get("notional")) != MAX_ORDER):
         raise RuntimeError("Order acknowledgment ambiguous; check Alpaca before retrying")
     return {"decision": "SUBMITTED", "symbol": symbol, "notional_usd": str(MAX_ORDER),
             "client_order_id": client_id, "broker_status": order.get("status"),
