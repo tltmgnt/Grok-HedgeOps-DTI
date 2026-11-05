@@ -72,7 +72,7 @@ class OpportunityTests(unittest.TestCase):
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             result = assess(now=NOW, key="key", secret="secret", get=get,
                             bars_fetch=lambda *a, **k: self.fail("Should not scan"))
-        self.assertIn("open buy", result["reason"])
+        self.assertIn("Existing open or unrecognized order", result["reason"])
 
     def test_news_required(self):
         self.assertEqual(len(news_evidence("HD", "key", "secret", now=NOW, get=broker)), 1)
@@ -349,6 +349,8 @@ class OpportunityTests(unittest.TestCase):
                     if path == "/v2/positions":
                         return []
                     if path == "/v2/orders":
+                        if params and params.get("status") == "open":
+                            return []
                         return [{
                             "side": "buy",
                             "status": "filled",
