@@ -104,7 +104,10 @@ class OpportunityTests(unittest.TestCase):
             calls.append((host, path, payload))
             if path == "/v2/orders:by_client_order_id":
                 raise RuntimeError("Alpaca HTTP 404")
-            if path != "/v2/orders:by_client_order_id" and payload is None:\n                return broker(host, path, key, secret, params=params)\n            return {"id": "paper-id", "status": "accepted", "symbol": "HD", "side": "buy",\n                    "notional": "10.00", "client_order_id": decision["client_order_id"]}
+            if path != "/v2/orders:by_client_order_id" and payload is None:
+                return broker(host, path, key, secret, params=params)
+            return {"id": "paper-id", "status": "accepted", "symbol": "HD", "side": "buy",
+                    "notional": "10.00", "client_order_id": decision["client_order_id"]}
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             result = execute(decision, key="key", secret="secret", get=get)
