@@ -6,7 +6,7 @@ This feature is a **research watchlist**, not an autonomous trading strategy. It
 
 After merging, go to **GitHub Actions → Daily Stock Discovery (Read Only) → Run workflow → main → Run workflow**.
 
-The workflow also runs at **23:30 UTC on weekdays** (3:30 p.m. PST / 4:30 p.m. PDT); GitHub scheduled runs may be delayed, and the latest available IEX daily bar may be incomplete or stale depending on session timing. Inspect the report's `last_bar_utc` before acting. To change the timing, edit only this workflow's cron schedule.
+The workflow also runs at **23:30 UTC on weekdays** (4:30 p.m. PST / 3:30 p.m. PDT); GitHub scheduled runs may be delayed, and the latest available IEX daily bar may be incomplete or stale depending on session timing. Inspect the report's `last_bar_utc` before acting. To change the timing, edit only this workflow's cron schedule.
 
 It uses the existing **paper** repository secrets `ALPACA_API_KEY` and `ALPACA_API_SECRET` to make authenticated **GET-only** requests to Alpaca's historical stock-bars API. It does not need broker order permissions for its code path, although Alpaca keys themselves may have broader permissions; protect the credentials.
 
