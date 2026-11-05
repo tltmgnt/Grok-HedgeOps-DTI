@@ -1,0 +1,66 @@
+name: Read-only Position Loss Monitor
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Alpaca account to inspect (read-only)"
+        type: choice
+        required: true
+        default: paper
+        options:
+          - paper
+          - live
+      warning_pct:
+        description: "Loss percentage for warning"
+        type: string
+        default: '5'
+      critical_pct:
+        description: "Loss percentage for critical alert"
+        type: string
+        default: '10'
+  schedule:
+    # Every 30 minutes during US market hours (UTC); skips weekends.
+    # Does not guarantee prompt detection, execution, or broker uptime.
+    - cron: '*/30 14-21 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: read-only-position-loss-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: broker-monitoring
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Read-only monitoring
+        env:
+          ALPACA_API_KEY: ${{ secrets.MONITOR_ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.MONITOR_ALPACA_API_SECRET }}
+          HEDGEOPS_ALERT_WEBHOOK: ${{ secrets.HEDGEOPS_ALERT_WEBHOOK }}
+          REQUESTED_MODE: ${{ inputs.mode }}
+          REQUESTED_WARNING: ${{ inputs.warning_pct }}
+          REQUESTED_CRITICAL: ${{ inputs.critical_pct }}
+          SCHEDULE_MODE: ${{ vars.MONITOR_SCHEDULE_MODE }}
+        run: |
+          if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
+            echo "Monitoring not configured: set dedicated broker-monitoring environment secrets."
+            exit 0
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            MODE="${SCHEDULE_MODE:-paper}"
+            WARNING=5
+            CRITICAL=10
+          else
+            MODE="$REQUESTED_MODE"
+            WARNING="$REQUESTED_WARNING"
+            CRITICAL="$REQUESTED_CRITICAL"
+          fi
+          python position_loss_monitor.py --mode "$MODE" --warning-pct "$WARNING" --critical-pct "$CRITICAL" --output position-risk-report.json
+          # Never upload holdings or reports to public Actions artifacts.
