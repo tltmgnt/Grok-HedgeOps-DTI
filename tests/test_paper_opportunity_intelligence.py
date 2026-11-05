@@ -205,5 +205,37 @@ class OpportunityTests(unittest.TestCase):
         self.assertFalse(any(payload is not None
                              for _, _, payload in calls))
 
+    def test_invalid_order_id_never_submits_order(self):
+        from datetime import timedelta
+        from paper_opportunity_intelligence import order_id
+
+        calls = []
+
+        def recording_broker(host, path, key, secret, *,
+                             params=None, payload=None):
+            calls.append((path, payload))
+            raise AssertionError("Broker must not be called")
+
+        trading_day = NOW.astimezone(
+            timezone(timedelta(hours=-5))
+        ).date()
+
+        decision = {
+            "decision": "READY",
+            "symbol": "HD",
+            "notional_usd": "10.00",
+            "client_order_id": order_id(trading_day, "LOW") ,
+        }
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "Unsafe order parameters"):
+                execute(decision, key="key", secret="secret",
+                        get=recording_broker)
+
+        self.assertEqual(calls, [])
+
 if __name__ == "__main__":
     unittest.main()
