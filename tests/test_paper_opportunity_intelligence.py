@@ -398,6 +398,8 @@ class OpportunityTests(unittest.TestCase):
             if path == "/v2/positions":
                 return []
             if path == "/v2/orders":
+            if params and params.get("status") == "open":
+                return []
                 self.assertEqual(params["after"], expected_after)
                 seen_orders.append(True)
                 return [{
