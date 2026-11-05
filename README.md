@@ -43,6 +43,22 @@ The Actions workflow now has separate `alpaca_paper_buy` and `alpaca_live_buy` o
 
 Other requested brokers are tracked in `broker_connectivity.py` with explicit fail-closed status: Webull (official trading API; approved account/key required), Webull Pay (separate crypto trading API), IBKR (official API with authentication/session requirements), and Merrill (no verified public retail order-submission API). **None of these four routes currently submits live orders.** No undocumented endpoint or screen-scraping workaround is used. See [broker integration plan](docs/trading-platform-integration.md).
 
+## Position-loss monitoring (read-only)
+
+A separate **Read-only Position Loss Monitor** GitHub Actions workflow monitors Alpaca account positions and flags unrealized losses against broker-reported cost basis. Defaults: warning at **5%**, critical at **10%**. These are illustrative alert thresholds, **not** automatic stop-loss orders. The monitor never submits, cancels or modifies broker orders.
+
+To configure, create the GitHub Actions environment `broker-monitoring`, restrict deployment branches to `main`, and add **dedicated read-only-capable** account credentials as environment secrets `MONITOR_ALPACA_API_KEY` and `MONITOR_ALPACA_API_SECRET`. Broker API key permissions vary; do not assume a key is read-only unless your broker enforces that permission. Optionally set `HEDGEOPS_ALERT_WEBHOOK` to a **private** HTTPS notification endpoint accepting a JSON `text` field. The webhook sends symbol and loss percentages; protect it as sensitive. For scheduled monitoring, `MONITOR_SCHEDULE_MODE` defaults to `paper`; set it to `live` only after you have explicitly chosen to monitor a live account with appropriate credentials. Scheduled checks run every 30 minutes on weekdays during a broad UTC market-hours window, including times when markets may be closed. They can be delayed or skipped. Manual dispatch allows paper/live selection and threshold inputs.
+
+The job writes a detailed JSON report only to its temporary runner filesystem; it **does not upload account holdings as a public artifact**. The job summary contains only alert counts. If secrets are not configured, the scheduled job skips monitoring. The repository cannot protect an account if the job does not run, the API fails, quotes are stale, or alerts are not delivered. Broker-native protective orders may be more appropriate for time-critical risk management, but even these do not guarantee a sale at the stop price.
+
+Run locally with your own environment variables:
+
+```bash
+python position_loss_monitor.py --mode paper --warning-pct 5 --critical-pct 10
+```
+
+Review [monitoring and protection guide](docs/POSITION_LOSS_MONITORING.md) before connecting any account.
+
 ## Planned architecture
 
 Orchestrator Ω → Temporal / Capacity / Strategy / Risk / Hedge / Contrarian / Red-Team agents → Evidence-based Arbitrator Ω → Human-approved decision → Observation and feedback.
