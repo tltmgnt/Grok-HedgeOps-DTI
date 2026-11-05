@@ -316,14 +316,42 @@ def main(argv=None):
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc)
     result = {"decision": "SKIP", "reason": "Not started"}
+    submissions = []
     try:
-        result = assess(now=now, key=os.getenv("ALPACA_API_KEY", ""),
-                        secret=os.getenv("ALPACA_API_SECRET", ""), monitor_only=args.monitor_only)
-        if result["decision"] == "READY" and not args.monitor_only:
-            result = execute(result, key=os.getenv("ALPACA_API_KEY", ""),
+        mode, _, max_attempts = allocation_policy()
+        max_in_run = max_attempts if (mode == "diversified"
+                                     and os.getenv("PAPER_MULTI_ORDER_RUN") == "true"
+                                     and not args.monitor_only) else 1
+        seen_symbols = set()
+        for _ in range(max_in_run):
+            decision = assess(now=datetime.now(timezone.utc),
+                              key=os.getenv("ALPACA_API_KEY", ""),
+                              secret=os.getenv("ALPACA_API_SECRET", ""),
+                              monitor_only=args.monitor_only)
+            if decision["decision"] != "READY" or args.monitor_only:
+                result = decision
+                break
+            if decision["symbol"] in seen_symbols:
+                result = {"decision": "SKIP", "reason": "Repeated candidate; await broker reconciliation"}
+                break
+            seen_symbols.add(decision["symbol"])
+            result = execute(decision, key=os.getenv("ALPACA_API_KEY", ""),
                              secret=os.getenv("ALPACA_API_SECRET", ""))
+            if result["decision"] != "SUBMITTED":
+                break
+            submissions.append(result)
+            # Never continue while the previous paper order is pending.
+            if result.get("broker_status") != "filled":
+                break
+        if submissions:
+            result = {"decision": "SUBMITTED", "orders": submissions,
+                      "submitted_count": len(submissions),
+                      "submitted_notional_usd": str(sum(
+                          (money(x["notional_usd"]) for x in submissions), Decimal("0"))),
+                      "last_decision": result}
     except (RuntimeError, ValueError, TypeError) as exc:
-        result = {"decision": "ERROR", "reason": str(exc)}
+        result = {"decision": "ERROR", "reason": str(exc),
+                  "orders": submissions, "submitted_count": len(submissions)}
     if args.monitor_only and result["decision"] == "READY":
         result["decision"] = "MONITOR_READY"
         result["reason"] = "Read-only assessment passed; no order submitted"
@@ -336,6 +364,7 @@ def main(argv=None):
              f"Reason: {result.get('reason', 'See decision.json')}", "",
              f"Symbol: {result.get('symbol', '—')}", "",
              f"Broker status: {result.get('broker_status', '—')}", "",
+             f"Submitted orders this run: {result.get('submitted_count', 0)}",
              "This is PAPER ONLY. Submitted does not mean filled.",
              "Do not rerun an ambiguous submission; reconcile in Alpaca."]
     (out / "decision.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
