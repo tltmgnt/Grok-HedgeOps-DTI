@@ -83,7 +83,7 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(news_evidence("HD", "key", "secret", now=NOW, get=no_news), [])
 
     def test_execute_requires_enabled_and_no_duplicate(self):
-                from zoneinfo import ZoneInfo
+        from zoneinfo import ZoneInfo
         today = datetime.now(timezone.utc).astimezone(
             ZoneInfo("America/New_York")
         ).date()
