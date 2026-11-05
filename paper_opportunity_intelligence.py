@@ -228,8 +228,19 @@ def execute(decision, *, key, secret, get=request_json):
         return {"decision": "SKIP", "reason": "Kill switch or enable flag changed"}
     symbol = decision["symbol"]
     client_id = decision["client_order_id"]
-    if money(decision["notional_usd"]) != MAX_ORDER or not client_id.startswith(PREFIX + "-"):
+    
+    expected_id = order_id(
+        datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date(),
+        symbol,
+    )
+    if (
+        money(decision["notional_usd"]) != MAX_ORDER
+        or client_id != expected_id
+    ):
         raise ValueError("Unsafe order parameters")
+  
     # Reconcile account and today's broker commitments immediately before POST.
     reason = broker_risk_check(now=datetime.now(timezone.utc), key=key, secret=secret, get=get)
     if reason:
