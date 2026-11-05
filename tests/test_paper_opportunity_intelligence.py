@@ -83,8 +83,12 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(news_evidence("HD", "key", "secret", now=NOW, get=no_news), [])
 
     def test_execute_requires_enabled_and_no_duplicate(self):
+                from zoneinfo import ZoneInfo
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
         decision = {"decision": "READY", "symbol": "HD", "notional_usd": "10.00",
-                    "client_order_id": "hedgeopsauto-20261104-hd"}
+                        "client_order_id": order_id(today, "HD")}
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(execute(decision, key="key", secret="secret",
                                      get=lambda *a, **k: self.fail("Network"))["decision"], "SKIP")
@@ -97,8 +101,12 @@ class OpportunityTests(unittest.TestCase):
             self.assertEqual(execute(decision, key="key", secret="secret", get=existing)["decision"], "SKIP")
 
     def test_single_post_paper_only(self):
+        from zoneinfo import ZoneInfo
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
         decision = {"decision": "READY", "symbol": "HD", "notional_usd": "10.00",
-                    "client_order_id": "hedgeopsauto-20261104-hd"}
+                    "client_order_id": order_id(today, "HD")}
         calls = []
         def get(host, path, key, secret, *, params=None, payload=None):
             calls.append((host, path, payload))
