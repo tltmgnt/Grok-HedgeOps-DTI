@@ -237,5 +237,43 @@ class OpportunityTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_market_closed_recheck_never_submits_order(self):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from paper_opportunity_intelligence import execute, order_id
+
+        calls = []
+
+        def fake_broker(host, path, key, secret, *,
+                        params=None, payload=None):
+            calls.append((path, payload))
+            if path == "/v2/clock":
+                return {"is_open": False}
+            raise AssertionError("No further broker requests allowed")
+
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")
+        ).date()
+
+        decision = {
+            "decision": "READY",
+            "symbol": "HD",
+            "notional_usd": "10.00",
+            "client_order_id": order_id(today, "HD"),
+        }
+
+        with patch.dict(os.environ, {
+            "PAPER_AUTO_TRADING_ENABLED": "true",
+            "PAPER_AUTO_KILL_SWITCH": "false",
+        }, clear=True):
+            result = execute(
+                decision, key="test", secret="test",
+                get=fake_broker,
+            )
+
+        self.assertEqual(result["decision"], "SKIP")
+        self.assertEqual(calls, [("/v2/clock", None)])
+
+
 if __name__ == "__main__":
     unittest.main()

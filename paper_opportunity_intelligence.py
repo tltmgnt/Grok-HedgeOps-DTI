@@ -241,6 +241,12 @@ def execute(decision, *, key, secret, get=request_json):
     ):
         raise ValueError("Unsafe order parameters")
   
+    # Recheck the Alpaca paper market clock before submitting.
+    clock = get(PAPER, "/v2/clock", key, secret)
+    if not isinstance(clock, dict) or clock.get("is_open") is not True:
+        return {"decision": "SKIP", "reason": "Market closed before order submission"}
+
+
     # Reconcile account and today's broker commitments immediately before POST.
     reason = broker_risk_check(now=datetime.now(timezone.utc), key=key, secret=secret, get=get)
     if reason:
