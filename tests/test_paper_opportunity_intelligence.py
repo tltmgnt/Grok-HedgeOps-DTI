@@ -297,6 +297,29 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(result["decision"], "SKIP")
         self.assertEqual(calls, [("/v2/clock", None)])
 
+    def test_daily_cap_100_boundary(self):
+        from paper_opportunity_intelligence import MAX_DAILY
 
+        self.assertEqual(MAX_DAILY, 100)
+
+        for spent, should_block in [
+            ("90.00", False),
+            ("90.01", True),
+            ("100.00", True),
+        ]:
+            with self.subTest(spent=spent):
+                remaining = MAX_DAILY - daily_buy_commitments(
+                    [{
+                        "side": "buy",
+                        "status": "filled",
+                        "notional": spent,
+                        "submitted_at": "2026-11-04T15:00:00Z",
+                    }],
+                    date(2026, 11, 4),
+                )
+                self.assertEqual(
+                    remaining < MAX_ORDER,
+                    should_block,
+                )
 if __name__ == "__main__":
     unittest.main()
