@@ -472,6 +472,42 @@ class OpportunityTests(unittest.TestCase):
         self.assertIn("Market closed", result["reason"])
         self.assertEqual(calls, [(PAPER, "/v2/clock", None)])
 
+    def test_multi_order_run_stops_on_pending_order(self):
+        import tempfile
+        from paper_opportunity_intelligence import main
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"PAPER_ALLOCATION_MODE": "diversified",
+                                         "PAPER_MULTI_ORDER_RUN": "true"}, clear=True):
+                with patch("paper_opportunity_intelligence.assess",
+                           return_value={"decision": "READY", "symbol": "HD"}) as a:
+                    with patch("paper_opportunity_intelligence.execute",
+                               return_value={"decision": "SUBMITTED", "symbol": "HD",
+                                             "notional_usd": "10.00",
+                                             "broker_status": "accepted"}) as e:
+                        self.assertEqual(main(["--output-dir", tmp]), 0)
+            a.assert_called_once()
+            e.assert_called_once()
+
+    def test_multi_order_run_reassesses_and_stops_on_repeat(self):
+        import tempfile
+        import json
+        from pathlib import Path
+        from paper_opportunity_intelligence import main
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"PAPER_ALLOCATION_MODE": "diversified",
+                                         "PAPER_MULTI_ORDER_RUN": "true"}, clear=True):
+                with patch("paper_opportunity_intelligence.assess",
+                           return_value={"decision": "READY", "symbol": "HD"}) as a:
+                    with patch("paper_opportunity_intelligence.execute",
+                               return_value={"decision": "SUBMITTED", "symbol": "HD",
+                                             "notional_usd": "10.00",
+                                             "broker_status": "filled"}) as e:
+                        self.assertEqual(main(["--output-dir", tmp]), 0)
+            self.assertEqual(a.call_count, 2)
+            e.assert_called_once()
+            report = json.loads((Path(tmp) / "decision.json").read_text())
+            self.assertEqual(report["submitted_count"], 1)
+
     def test_monitor_only_main_never_executes_even_if_ready(self):
         import tempfile
         from pathlib import Path
