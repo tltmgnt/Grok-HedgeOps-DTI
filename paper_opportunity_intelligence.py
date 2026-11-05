@@ -162,7 +162,7 @@ def broker_risk_check(*, now, key, secret, get=request_json):
         raise ValueError("Open order history unavailable or truncated; fail closed")
     if any(o.get("side") != "sell" for o in open_orders):
         return "Existing open or unrecognized order"
-  trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
+   trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
     # Request all orders, not only a recent window; fail closed on truncation.
     orders = get(PAPER, "/v2/orders", key, secret,
                  params={"status": "all", "limit": 500, "direction": "desc",
