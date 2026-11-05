@@ -47,6 +47,7 @@ jobs:
           python-version: '3.12'
       - name: Submit explicitly authorized Alpaca order
         env:
+          ALPACA_LIVE_TRADING_ENABLED: ${{ vars.ALPACA_LIVE_TRADING_ENABLED }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           LIVE_PURCHASE_CONFIRMATION: ${{ inputs.confirmation }}
