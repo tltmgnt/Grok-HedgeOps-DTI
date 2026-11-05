@@ -366,6 +366,55 @@ class OpportunityTests(unittest.TestCase):
                     self.assertIn("Daily buy commitment", reason)
                 else:
                     self.assertIsNone(reason)
-                    
+                    def test_midnight_order_history_boundary(self):
+        from paper_opportunity_intelligence import broker_risk_check
+        from zoneinfo import ZoneInfo
+        from datetime import timedelta
+
+        trading_day = date(2026, 11, 4)
+        midnight = datetime.combine(
+            trading_day,
+            datetime.min.time(),
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        expected_after = (midnight - timedelta(seconds=1)).isoformat()
+        seen_orders = []
+
+        def fake_broker(host, path, key, secret, *,
+                        params=None, payload=None):
+            self.assertEqual(host, PAPER)
+            self.assertIsNone(payload)
+
+            if path == "/v2/account":
+                return {
+                    "status": "ACTIVE",
+                    "trading_blocked": False,
+                    "account_blocked": False,
+                    "cash": "1000",
+                    "buying_power": "1000",
+                }
+            if path == "/v2/positions":
+                return []
+            if path == "/v2/orders":
+                self.assertEqual(params["after"], expected_after)
+                seen_orders.append(True)
+                return [{
+                    "side": "buy",
+                    "status": "filled",
+                    "notional": "95.00",
+                    "submitted_at": midnight.isoformat(),
+                }]
+            self.fail(f"Unexpected broker path: {path}")
+
+        reason = broker_risk_check(
+            now=NOW,
+            key="key",
+            secret="secret",
+            get=fake_broker,
+        )
+
+        self.assertTrue(seen_orders)
+        self.assertIn("Daily buy commitment cap reached", reason)
+        
 if __name__ == "__main__":
     unittest.main()
