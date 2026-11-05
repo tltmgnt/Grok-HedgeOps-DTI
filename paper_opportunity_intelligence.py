@@ -153,7 +153,11 @@ def broker_risk_check(*, now, key, secret, get=request_json):
     # Request all orders, not only a recent window; fail closed on truncation.
     orders = get(PAPER, "/v2/orders", key, secret,
                  params={"status": "all", "limit": 500, "direction": "desc",
-        "after": datetime.combine(trading_day, datetime.min.time(), tzinfo=ZoneInfo("America/New_York")).isoformat()})
+"after": (datetime.combine(
+    trading_day,
+    datetime.min.time(),
+    tzinfo=ZoneInfo("America/New_York")
+) - timedelta(seconds=1)).isoformat()})
     if not isinstance(orders, list) or len(orders) >= 500:
         raise ValueError("Order history unavailable or truncated; fail closed")
     active = {"new", "accepted", "pending_new", "partially_filled", "held",
