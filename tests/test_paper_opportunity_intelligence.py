@@ -138,7 +138,7 @@ class OpportunityTests(unittest.TestCase):
             result = assess(now=NOW, key="key", secret="secret", get=low_cash)
         self.assertEqual(result["decision"], "SKIP")
         
-     def test_manual_buy_blocks_daily_cap(self):
+    def test_manual_buy_blocks_daily_cap(self):
         def manual_buy(*args, **kwargs):
             if args[1] == "/v2/orders":
                 return [{
