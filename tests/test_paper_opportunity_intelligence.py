@@ -1,11 +1,11 @@
 """Offline tests; never make a network call or place a broker order."""
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from unittest.mock import patch
 
 from paper_opportunity_intelligence import (
-    DATA, PAPER, MAX_ORDER, assess, eligible_candidate, execute, news_evidence,
+    DATA, PAPER, MAX_ORDER, assess, eligible_candidate, execute, news_evidence, daily_buy_commitments,
     order_id, request_json,
 )
 
@@ -66,7 +66,7 @@ class OpportunityTests(unittest.TestCase):
     def test_existing_open_order_blocks(self):
         def get(*args, **kwargs):
             if args[1] == "/v2/orders":
-                return [{"symbol": "SPY", "side": "buy", "status": "accepted"}]
+                return [{"symbol": "SPY", "side": "buy", "status": "accepted", "notional": "10", "submitted_at": "2026-11-04T18:00:00Z"}]
             return broker(*args, **kwargs)
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
@@ -91,8 +91,9 @@ class OpportunityTests(unittest.TestCase):
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             def existing(*args, **kwargs):
-                self.assertEqual(args[1], "/v2/orders:by_client_order_id")
-                return {"status": "accepted"}
+                if args[1] == "/v2/orders:by_client_order_id":
+                    return {"status": "accepted"}
+                return broker(*args, **kwargs)
             self.assertEqual(execute(decision, key="key", secret="secret", get=existing)["decision"], "SKIP")
 
     def test_single_post_paper_only(self):
@@ -103,7 +104,7 @@ class OpportunityTests(unittest.TestCase):
             calls.append((host, path, payload))
             if path == "/v2/orders:by_client_order_id":
                 raise RuntimeError("Alpaca HTTP 404")
-            return {"id": "paper-id", "status": "accepted"}
+            if path != "/v2/orders:by_client_order_id" and payload is None:\n                return broker(host, path, key, secret, params=params)\n            return {"id": "paper-id", "status": "accepted", "symbol": "HD", "side": "buy",\n                    "notional": "10.00", "client_order_id": decision["client_order_id"]}
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
             result = execute(decision, key="key", secret="secret", get=get)
@@ -112,6 +113,38 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(calls[-1][0:2], (PAPER, "/v2/orders"))
         self.assertEqual(calls[-1][2]["notional"], str(MAX_ORDER))
         self.assertNotIn("api.alpaca.markets/v2", calls[-1][0])
+
+    def test_daily_spending_includes_manual_buys(self):
+        orders = [{"side": "buy", "notional": "4", "submitted_at": "2026-11-04T15:00:00Z"},
+                  {"side": "buy", "notional": "6", "submitted_at": "2026-11-04T16:00:00Z"}]
+        self.assertEqual(str(daily_buy_commitments(orders, date(2026, 11, 4))), "10")
+
+    def test_missing_notional_fails_closed(self):
+        with self.assertRaises(ValueError):
+            daily_buy_commitments([{"side": "buy", "submitted_at": "2026-11-04T15:00:00Z"}],
+                                  date(2026, 11, 4))
+
+    def test_insufficient_post_order_reserve(self):
+        def low_cash(*args, **kwargs):
+            if args[1] == "/v2/account":
+                return {"status": "ACTIVE", "trading_blocked": False, "account_blocked": False,
+                        "cash": "105", "buying_power": "105"}
+            return broker(*args, **kwargs)
+        with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
+                                     "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
+            result = assess(now=NOW, key="key", secret="secret", get=low_cash)
+        self.assertEqual(result["decision"], "SKIP")
+
+    def test_manual_buy_blocks_daily_cap(self):
+        def manual_buy(*args, **kwargs):
+            if args[1] == "/v2/orders":
+                return [{"side": "buy", "status": "filled", "notional": "5",
+                         "submitted_at": "2026-11-04T15:00:00Z"}]
+            return broker(*args, **kwargs)
+        with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
+                                     "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
+            result = assess(now=NOW, key="key", secret="secret", get=manual_buy)
+        self.assertIn("Daily buy commitment", result["reason"])
 
     def test_host_allowlist(self):
         with self.assertRaises(ValueError):
