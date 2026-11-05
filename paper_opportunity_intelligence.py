@@ -149,7 +149,20 @@ def broker_risk_check(*, now, key, secret, get=request_json):
     if len(positions) >= MAX_POSITIONS:
         return "Position-count cap reached"
 
-    trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
+        # Check all open orders, including those submitted before today.
+    open_orders = get(
+        PAPER, "/v2/orders", key, secret,
+        params={"status": "open", "limit": 500, "direction": "desc"},
+    )
+    if (
+        not isinstance(open_orders, list)
+        or len(open_orders) >= 500
+        or any(not isinstance(o, dict) for o in open_orders)
+    ):
+        raise ValueError("Open order history unavailable or truncated; fail closed")
+    if any(o.get("side") != "sell" for o in open_orders):
+        return "Existing open or unrecognized order"
+  trading_day = now.astimezone(ZoneInfo("America/New_York")).date()
     # Request all orders, not only a recent window; fail closed on truncation.
     orders = get(PAPER, "/v2/orders", key, secret,
                  params={"status": "all", "limit": 500, "direction": "desc",
