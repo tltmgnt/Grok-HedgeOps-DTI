@@ -186,11 +186,11 @@ def broker_risk_check(*, now, key, secret, get=request_json):
     return None
 
 
-def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars):
+def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor_only=False):
     """Return a decision. No orders are submitted in this function."""
-    if os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true":
+    if not monitor_only and os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true":
         return {"decision": "SKIP", "reason": "Auto trading disabled"}
-    if os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
+    if not monitor_only and os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
         return {"decision": "SKIP", "reason": "Kill switch active or unset"}
     if not key or not secret:
         raise ValueError("Missing paper credentials")
@@ -296,17 +296,21 @@ def execute(decision, *, key, secret, get=request_json):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", default="opportunity-intelligence-output")
+    parser.add_argument("--monitor-only", action="store_true", help="Read-only assessment; never execute orders")
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc)
     result = {"decision": "SKIP", "reason": "Not started"}
     try:
         result = assess(now=now, key=os.getenv("ALPACA_API_KEY", ""),
-                        secret=os.getenv("ALPACA_API_SECRET", ""))
-        if result["decision"] == "READY":
+                        secret=os.getenv("ALPACA_API_SECRET", ""), monitor_only=args.monitor_only)
+        if result["decision"] == "READY" and not args.monitor_only:
             result = execute(result, key=os.getenv("ALPACA_API_KEY", ""),
                              secret=os.getenv("ALPACA_API_SECRET", ""))
     except (RuntimeError, ValueError, TypeError) as exc:
         result = {"decision": "ERROR", "reason": str(exc)}
+    if args.monitor_only and result["decision"] == "READY":
+        result["decision"] = "MONITOR_READY"
+        result["reason"] = "Read-only assessment passed; no order submitted"
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "decision.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
