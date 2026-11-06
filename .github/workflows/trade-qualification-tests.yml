@@ -1,0 +1,23 @@
+name: Paper Trade Qualification Tests
+on:
+  push:
+    branches: [feature/paper-trade-qualification-feedback]
+  pull_request:
+    paths:
+      - 'trade_qualification.py'
+      - 'paper_order_feedback.py'
+      - 'tests/**'
+      - '.github/workflows/trade-qualification-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -p 'test_trade_qualification.py' -v
+      - run: python -m py_compile trade_qualification.py paper_order_feedback.py
