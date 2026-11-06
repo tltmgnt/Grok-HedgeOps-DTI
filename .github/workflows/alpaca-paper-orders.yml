@@ -1,0 +1,58 @@
+name: Alpaca Paper Opportunity Orders (Explicit Opt-In)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type SUBMIT PAPER ORDERS to authorize simulated Alpaca paper orders'
+        required: true
+        type: string
+      kill_switch:
+        description: 'Emergency kill switch (true prevents submissions)'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpaca-paper-order-submission
+  cancel-in-progress: false
+
+jobs:
+  paper-orders:
+    if: ${{ inputs.confirm == 'SUBMIT PAPER ORDERS' && inputs.kill_switch == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: paper-trading
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate tests before broker access
+        run: |
+          python -m pip install -r requirements.txt pytest
+          python -m pytest tests -q
+          python offline_paper_opportunity_dry_run.py
+      - name: Submit at most one bounded Alpaca paper order
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          PAPER_AUTO_TRADING_ENABLED: 'true'
+          PAPER_AUTO_KILL_SWITCH: 'false'
+          PAPER_ALLOCATION_MODE: legacy
+          PAPER_MULTI_ORDER_RUN: 'false'
+        run: |
+          test -n "$ALPACA_API_KEY" && test -n "$ALPACA_API_SECRET" || { echo 'Missing paper-only credentials'; exit 1; }
+          python paper_opportunity_intelligence.py --output-dir paper-order-evidence
+      - name: Upload decision and reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpaca-paper-order-decision
+          path: paper-order-evidence/
+          if-no-files-found: ignore
