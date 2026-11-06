@@ -87,39 +87,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check Pacific schedule
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Check Pacific schedule and report decision
         id: pacific
         env:
           SCHEDULE: ${{ github.event.schedule }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$SCHEDULE" = "0 16 * * *" ] && [ "$(TZ=America/Los_Angeles date -d '16:00 UTC' +%H)" = "09" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$SCHEDULE" = "0 17 * * *" ] && [ "$(TZ=America/Los_Angeles date -d '17:00 UTC' +%H)" = "09" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Checkout
-        if: steps.pacific.outputs.run == 'true'
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        if: steps.pacific.outputs.run == 'true'
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
+          python scripts/offline_schedule.py --event "$EVENT_NAME" --cron "$SCHEDULE" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Run offline $200 simulation
         if: steps.pacific.outputs.run == 'true'
-        run: python paper_trader.py --demo --capital 200 > paper-trading-results.txt
+        run: |
+          python paper_trader.py --demo --capital 200 --json-out paper-trading-results.json > paper-trading-results.txt
+          test -s paper-trading-results.txt
+          test -s paper-trading-results.json
+          python -c 'import json; r=json.load(open("paper-trading-results.json")); assert r["starting"] == 200; assert r["observations"] > 0'
+          echo "### Simulation completed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Offline $200 simulation generated validated text and JSON results." >> "$GITHUB_STEP_SUMMARY"
       - name: Save simulation
         if: steps.pacific.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: paper-trading-results
-          path: paper-trading-results.txt
+          path: |
+            paper-trading-results.txt
+            paper-trading-results.json
           retention-days: 7
           if-no-files-found: error
