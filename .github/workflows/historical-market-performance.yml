@@ -1,0 +1,47 @@
+name: Historical Real-Market Performance (No Orders)
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Stock symbol (SPY, AAPL, etc.)'
+        required: true
+        default: SPY
+        type: string
+  schedule:
+    - cron: '30 23 * * 1-5'
+
+permissions:
+  contents: read
+
+jobs:
+  historical-market-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run offline unit tests
+        run: |
+          python -m pip install -r requirements.txt pytest
+          python -m pytest tests -q
+      - name: Run read-only market-data backtest
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          SYMBOL: ${{ inputs.symbol || 'SPY' }}
+        run: |
+          test -n "$APCA_API_KEY_ID" && test -n "$APCA_API_SECRET_KEY" || { echo 'Missing Alpaca market-data credentials'; exit 1; }
+          mkdir -p evidence
+          python historical_market_performance.py --symbol "$SYMBOL" --out evidence/market-performance.json
+      - name: Publish historical performance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-market-performance
+          path: evidence/market-performance.json
+          if-no-files-found: ignore
