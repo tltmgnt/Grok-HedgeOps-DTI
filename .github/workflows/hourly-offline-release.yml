@@ -1,0 +1,99 @@
+name: Hourly Offline Release and Simulation
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hourly-offline-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create evidence directory
+        run: mkdir -p evidence
+      - name: Run offline release checks
+        id: release
+        run: |
+          set -o pipefail
+          python release_check.py --verbose 2>&1 | tee evidence/release-check.log
+      - name: Run offline $200 simulation
+        id: simulation
+        if: steps.release.outcome == 'success'
+        run: |
+          set -o pipefail
+          python paper_trader.py --demo --capital 200 --json-out evidence/simulation.json 2>&1 | tee evidence/simulation.txt
+      - name: Validate simulation evidence
+        id: validate
+        if: steps.simulation.outcome == 'success'
+        run: |
+          test -s evidence/simulation.txt
+          python scripts/validate_offline_run.py evidence/simulation.json --report evidence/validation.json
+      - name: Record outcome and failure reasons
+        if: always()
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          SIMULATION_OUTCOME: ${{ steps.simulation.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          outcomes = {key: os.environ[key] for key in ("RELEASE_OUTCOME", "SIMULATION_OUTCOME", "VALIDATION_OUTCOME")}
+          success = all(v == "success" for v in outcomes.values())
+          report = {
+              "status": "PASS" if success else "FAIL",
+              "checks": outcomes,
+              "mode": "OFFLINE_SYNTHETIC_ONLY",
+              "broker_orders_submitted": 0,
+              "live_integrations_verified": False,
+          }
+          Path("evidence").mkdir(exist_ok=True)
+          Path("evidence/run-status.json").write_text(json.dumps(report, indent=2) + "\n")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a") as f:
+                  f.write("## Hourly offline release and simulation\n\n")
+                  f.write(f"**Outcome: {report['status']}**\n\n")
+                  for name, outcome in outcomes.items():
+                      f.write(f"- {name}: {outcome}\n")
+                  f.write("\nSynthetic offline only; zero broker orders. Live services not verified.\n")
+          print(json.dumps(report))
+          PY
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hourly-offline-evidence-${{ github.run_id }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Fail job if any verification failed
+        if: always()
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          SIMULATION_OUTCOME: ${{ steps.simulation.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+        run: |
+          test "$RELEASE_OUTCOME" = success
+          test "$SIMULATION_OUTCOME" = success
+          test "$VALIDATION_OUTCOME" = success
