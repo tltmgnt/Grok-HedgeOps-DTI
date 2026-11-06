@@ -5,6 +5,7 @@ import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from multidimensional_risk import assess
 
 def finite(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
@@ -69,7 +70,14 @@ def qualify(data, account, positions, orders, *, now=None):
         notional = round(min(200.0, equity * 0.02, buying_power), 2)
         if notional < 1 or exposure + notional > equity * 0.20:
             reasons.append("EXPOSURE_OR_BUYING_POWER_LIMIT")
-        result["decisions"].append({"symbol": symbol, "status": "QUALIFIED" if not reasons else "SKIPPED", "reasons": reasons, "notional_usd": notional if not reasons else 0})
+        diagnostic = assess(s, now=now)
+        if diagnostic["decision"] in ("REJECT", "DEFER"):
+            reasons.append("MULTIDIMENSIONAL_RISK_" + diagnostic["decision"])
+        elif diagnostic["decision"] == "REDUCE_SIZE" and not reasons:
+            notional = round(notional * diagnostic["suggested_size_factor"], 2)
+            if notional < 1:
+                reasons.append("REDUCED_SIZE_BELOW_MINIMUM")
+        result["decisions"].append({"symbol": symbol, "status": "QUALIFIED" if not reasons else "SKIPPED", "reasons": reasons, "notional_usd": notional if not reasons else 0, "risk_diagnostics": diagnostic})
         if not reasons:
             exposure += notional
             buying_power -= notional
@@ -96,6 +104,14 @@ def main():
             f.write("| Symbol | Decision | Reason | Notional USD |\n|---|---|---|---|\n")
             for d in report["decisions"]:
                 f.write(f"| {d['symbol']} | {d['status']} | {', '.join(d['reasons']) or 'PASS'} | {d['notional_usd']} |\n")
+            f.write("\\n### Risk diagnostics\\n")
+            for d in report["decisions"]:
+                diagnostic = d.get("risk_diagnostics")
+                if diagnostic:
+                    f.write(f"\\n**{d['symbol']}** — {diagnostic['decision']}\\n\\n")
+                    f.write("| Category | Severity | Code |\\n|---|---|---|\\n")
+                    for category, item in diagnostic["categories"].items():
+                        f.write(f"| {category} | {item['severity']} | {item['code']} |\\n")
             f.write(f"\n**Orders submitted: 0 (dry-run)**. {report.get('reason', '')}\n")
 
 if __name__ == "__main__":
