@@ -8,6 +8,9 @@ on:
         type: string
 permissions:
   contents: read
+concurrency:
+  group: alpaca-paper-orders
+  cancel-in-progress: false
 jobs:
   paper-orders:
     if: ${{ inputs.authorization == 'I AUTHORIZE PAPER ORDERS' }}
@@ -23,7 +26,15 @@ jobs:
           test -n "$SNAPSHOT_JSON" || { echo "NO ORDERS: missing snapshot" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
           printf '%s' "$SNAPSHOT_JSON" > /tmp/paper-market-snapshot.json
           python trade_qualification.py --input /tmp/paper-market-snapshot.json --output /tmp/trade-decisions.json
-      - name: Require explicit deployment opt-in\n        env:\n          DEPLOYMENT_READY: ${{ vars.PAPER_ORDER_DEPLOYMENT_READY }}\n        run: |\n          if [ "$DEPLOYMENT_READY" != "true" ]; then\n            echo "NO ORDERS SUBMITTED: PAPER_ORDER_DEPLOYMENT_READY is not true" >> "$GITHUB_STEP_SUMMARY"\n            exit 1\n          fi\n      - name: Submit qualified paper orders
+      - name: Require deployment readiness
+        env:
+          DEPLOYMENT_READY: ${{ vars.PAPER_ORDER_DEPLOYMENT_READY }}
+        run: |
+          if [ "$DEPLOYMENT_READY" != "true" ]; then
+            echo "NO ORDERS SUBMITTED: deployment not enabled" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Reconcile and report paper orders
         env:
           PAPER_EXECUTION_ENABLED: 'true'
           PAPER_EXECUTION_CONFIRM: ${{ inputs.authorization }}
