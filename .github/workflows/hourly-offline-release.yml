@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: hourly-offline-release-${{ github.ref }}
@@ -42,7 +43,16 @@ jobs:
         id: release
         run: |
           set -o pipefail
-          python release_check.py --verbose 2>&1 | tee evidence/release-check.log
+          for attempt in 1 2 3; do
+            echo "Offline release attempt ${attempt}/3" | tee -a evidence/release-check.log
+            if python release_check.py --verbose 2>&1 | tee -a evidence/release-check.log; then
+              echo "PASS on attempt ${attempt}" | tee -a evidence/release-check.log
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          echo "FAIL: all three offline release attempts failed" | tee -a evidence/release-check.log
+          exit 1
       - name: Run offline $200 simulation
         id: simulation
         if: steps.release.outcome == 'success'
@@ -55,6 +65,32 @@ jobs:
         run: |
           test -s evidence/simulation.txt
           python scripts/validate_offline_run.py evidence/simulation.json --report evidence/validation.json
+      - name: Diagnose repeated release failures
+        if: always() && steps.release.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          log = Path("evidence/release-check.log").read_text(errors="replace") if Path("evidence/release-check.log").exists() else "Missing release log"
+          patterns = ("ModuleNotFoundError:", "ImportError:", "AssertionError:", "SyntaxError:", "FAILED ", "ERROR ", "No module named")
+          matches = [line.strip()[:240] for line in log.splitlines() if any(p in line for p in patterns)]
+          matches = list(dict.fromkeys(matches))[-20:]
+          report = "# Offline release failure diagnosis\\n\\nRun: " + os.environ["RUN_URL"] + "\\n\\n" + "\\n".join("- " + x for x in matches)
+          if not matches:
+              report += "\\nNo recognized traceback signature; inspect release-check.log artifact."
+          Path("evidence/diagnosis.md").write_text(report + "\\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(report + "\\n")
+          PY
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            gh issue create --title "Offline release failure: automated diagnosis" --body-file evidence/diagnosis.md || echo "Could not create issue; diagnosis artifact retained"
+          fi
       - name: Record outcome and failure reasons
         if: always()
         env:
