@@ -7,7 +7,7 @@ from .validation import validate_bars
 
 
 class GrokStrategicAgent:
-    \"\"\"Optional xAI Chat Completions adapter. No request occurs until analyze().\"\"\"
+    """Optional xAI Chat Completions adapter. No request occurs until analyze()."""
 
     endpoint = "https://api.x.ai/v1/chat/completions"
 
