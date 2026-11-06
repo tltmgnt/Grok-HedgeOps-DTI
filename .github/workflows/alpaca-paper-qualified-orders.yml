@@ -1,0 +1,32 @@
+name: Alpaca Qualified Paper Orders
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: 'Type I AUTHORIZE PAPER ORDERS'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  paper-orders:
+    if: ${{ inputs.authorization == 'I AUTHORIZE PAPER ORDERS' }}
+    runs-on: ubuntu-latest
+    environment: paper-order-approval
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fresh market snapshot and qualify
+        env:
+          SNAPSHOT_JSON: ${{ vars.PAPER_MARKET_SNAPSHOT_JSON }}
+        run: |
+          test -n "$SNAPSHOT_JSON" || { echo "NO ORDERS: missing snapshot" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          printf '%s' "$SNAPSHOT_JSON" > /tmp/paper-market-snapshot.json
+          python trade_qualification.py --input /tmp/paper-market-snapshot.json --output /tmp/trade-decisions.json
+      - name: Submit qualified paper orders
+        env:
+          PAPER_EXECUTION_ENABLED: 'true'
+          PAPER_EXECUTION_CONFIRM: ${{ inputs.authorization }}
+          ALPACA_PAPER_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_PAPER_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+        run: python paper_order_feedback.py --decisions /tmp/trade-decisions.json
