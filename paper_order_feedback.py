@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 import urllib.request
 import urllib.error
 from pathlib import Path
+from restricted_https import open_api
 
 BASE = "https://paper-api.alpaca.markets"
 def request(path, key, secret, method="GET", payload=None):
     headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Content-Type": "application/json"}
     req = urllib.request.Request(BASE + path, headers=headers, method=method, data=json.dumps(payload).encode() if payload else None)
-    with urllib.request.urlopen(req, timeout=20) as response:
+    with open_api(req, timeout=20) as response:
         return json.load(response)
 
 def run(decisions, *, enabled=False, key="", secret=""):
@@ -36,31 +37,6 @@ def run(decisions, *, enabled=False, key="", secret=""):
         return report
     # Execution remains blocked until decision provenance and replay tests are complete.
     report["reason"] = "EXECUTION_BLOCKED_PENDING_PROVENANCE_VALIDATION"
-    return report
-    for decision in decisions.get("decisions", []):
-        if decision.get("status") != "QUALIFIED":
-            continue
-        symbol = decision["symbol"]
-        notional = decision["notional_usd"]
-        entry = {"symbol": symbol, "notional_usd": notional, "status": "NOT_SUBMITTED"}
-        report["orders"].append(entry)
-        # This stage is intentionally manual-only and must not be scheduled.
-        try:
-            report["orders_attempted"] += 1
-            order = request("/v2/orders", key, secret, "POST", {
-                "symbol": symbol, "notional": str(notional), "side": "buy",
-                "type": "market", "time_in_force": "day",
-                "client_order_id": "hedgeops-paper-" + uuid.uuid4().hex[:24]
-            })
-            entry.update({"status": order.get("status", "unknown"), "order_id": order.get("id"), "client_order_id": order.get("client_order_id")})
-            report["orders_accepted"] += 1
-        except urllib.error.HTTPError as exc:
-            entry.update({"status": "REJECTED_OR_ERROR", "http_status": exc.code})
-        except (OSError, ValueError) as exc:
-            entry.update({"status": "UNKNOWN_RECONCILE_IN_ALPACA", "error_type": type(exc).__name__})
-            # Do not automatically retry ambiguous order outcomes.
-    if report["orders_attempted"] == 0:
-        report["reason"] = "NO_QUALIFYING_ORDERS"
     return report
 
 def main():
