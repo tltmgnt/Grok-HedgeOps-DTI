@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 from .models import AgentAssessment
 from .validation import validate_bars
+from .restricted_https import open_api
 
 
 class GrokStrategicAgent:
@@ -45,7 +46,7 @@ class GrokStrategicAgent:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with open_api(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode())
             content = body["choices"][0]["message"]["content"]
             parsed = json.loads(content)
