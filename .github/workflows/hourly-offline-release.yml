@@ -1,6 +1,12 @@
 name: Hourly Offline Release and Simulation
 
 on:
+  pull_request:
+    paths:
+      - 'release_check.py'
+      - 'offline_paper_opportunity_dry_run.py'
+      - '.github/workflows/hourly-offline-release.yml'
+      - 'tests/**'
   schedule:
     - cron: '7 * * * *'
   workflow_dispatch:
