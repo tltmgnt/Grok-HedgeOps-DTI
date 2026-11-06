@@ -8,7 +8,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import httpx2 as httpx
+import httpx
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 from agent import ARRAY_FIELDS, REQUIRED_FIELDS, analyze
