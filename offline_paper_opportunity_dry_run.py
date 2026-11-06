@@ -37,7 +37,17 @@ def fixture_broker(*, cash="1000", orders=None, positions=None, clock_open=True)
         if path == "/v2/positions":
             return positions
         if path == "/v2/orders":
-            return orders
+            status = (params or {}).get("status")
+            if status == "open":
+                open_statuses = {
+                    "new", "accepted", "pending_new", "partially_filled",
+                    "held", "accepted_for_bidding", "pending_replace",
+                    "pending_cancel",
+                }
+                return [o for o in orders if o.get("status") in open_statuses]
+            if status == "all":
+                return orders
+            raise AssertionError("Unexpected orders query status")
         if path == "/v2/assets/HD":
             return {"status": "active", "tradable": True, "fractionable": True}
         if path == "/v1beta1/news":
@@ -70,7 +80,7 @@ def main():
         ("disabled_flag", {"enabled": "false"}),
         ("kill_switch", {"kill": "true"}),
         ("daily_spending_cap", {"orders": [{"side": "buy", "status": "filled",
-            "notional": "5", "submitted_at": "2026-11-04T17:00:00Z"}]}),
+            "notional": "100", "submitted_at": "2026-11-04T17:00:00Z"}]}),
         ("pending_buy", {"orders": [{"side": "buy", "status": "accepted",
             "notional": "10", "submitted_at": "2026-11-04T17:00:00Z"}]}),
         ("cash_reserve", {"cash": "105"}),
