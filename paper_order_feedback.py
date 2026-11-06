@@ -2,7 +2,7 @@
 import argparse
 import json
 import os
-import uuid
+from datetime import datetime, timezone
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -22,10 +22,21 @@ def run(decisions, *, enabled=False, key="", secret=""):
     if not key or not secret:
         report["reason"] = "MISSING_PAPER_CREDENTIALS"
         return report
-    account = request("/v2/account", key, secret)
-    if account.get("status") != "ACTIVE" or account.get("trading_blocked"):
-        report["reason"] = "ACCOUNT_NOT_ACTIVE"
+    from paper_broker_reconciliation import fetch_broker_state, order_key, reconcile_symbol
+    try:
+        account, positions, broker_orders = fetch_broker_state(key, secret)
+        equity = float(account["equity"])
+        buying_power = float(account["buying_power"])
+        exposure = sum(abs(float(p["market_value"])) for p in positions)
+    except (OSError, ValueError, KeyError, TypeError):
+        report["reason"] = "BROKER_RECONCILIATION_FAILED"
         return report
+    if equity <= 0 or buying_power < 0 or exposure < 0:
+        report["reason"] = "INVALID_BROKER_RISK_STATE"
+        return report
+    # Execution remains blocked until decision provenance and replay tests are complete.
+    report["reason"] = "EXECUTION_BLOCKED_PENDING_PROVENANCE_VALIDATION"
+    return report
     for decision in decisions.get("decisions", []):
         if decision.get("status") != "QUALIFIED":
             continue
