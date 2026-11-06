@@ -12,7 +12,13 @@ def finite(x):
 def qualify(data, account, positions, orders, *, now=None):
     now = now or datetime.now(timezone.utc)
     result = {"timestamp": now.isoformat(), "mode": "dry_run", "decisions": [], "orders_attempted": 0, "orders_accepted": 0}
-    if not isinstance(account, dict) or not isinstance(positions, list) or not isinstance(orders, list):\n        return {**result, "reason": "INVALID_PORTFOLIO_SNAPSHOT"}\n    if not all(isinstance(p, dict) for p in positions) or not all(isinstance(o, dict) for o in orders):\n        return {**result, "reason": "INVALID_PORTFOLIO_SNAPSHOT"}\n    if any(not finite(p.get("market_value")) or p["market_value"] < 0 for p in positions):\n        return {**result, "reason": "INVALID_POSITION_VALUES"}\n    if not isinstance(data, list):
+    if not isinstance(account, dict) or not isinstance(positions, list) or not isinstance(orders, list):
+        return {**result, "reason": "INVALID_PORTFOLIO_SNAPSHOT"}
+    if not all(isinstance(p, dict) for p in positions) or not all(isinstance(o, dict) for o in orders):
+        return {**result, "reason": "INVALID_PORTFOLIO_SNAPSHOT"}
+    if any(not finite(p.get("market_value")) or p["market_value"] < 0 for p in positions):
+        return {**result, "reason": "INVALID_POSITION_VALUES"}
+    if not isinstance(data, list):
         raise ValueError("signals must be an array")
     equity = account.get("equity", 0)
     buying_power = account.get("buying_power", 0)
@@ -25,7 +31,10 @@ def qualify(data, account, positions, orders, *, now=None):
     pending = {o.get("symbol") for o in orders if o.get("status") not in ("canceled", "rejected", "filled", "expired")}
     exposure = sum(float(p.get("market_value", 0)) for p in positions if finite(p.get("market_value", 0)) and p.get("side", "long") == "long")
     for s in data:
-        if not isinstance(s, dict):\n            result["decisions"].append({"symbol": "", "status": "SKIPPED", "reasons": ["INVALID_SIGNAL"], "notional_usd": 0})\n            continue\n        symbol = s.get("symbol", "")
+        if not isinstance(s, dict):
+            result["decisions"].append({"symbol": "", "status": "SKIPPED", "reasons": ["INVALID_SIGNAL"], "notional_usd": 0})
+            continue
+        symbol = s.get("symbol", "")
         reasons = []
         if not isinstance(symbol, str) or not symbol.isascii() or not symbol.replace(".", "").isalpha() or len(symbol) > 10:
             reasons.append("INVALID_SYMBOL")
