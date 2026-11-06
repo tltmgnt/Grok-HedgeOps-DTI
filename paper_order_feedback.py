@@ -1,0 +1,74 @@
+"""Separately authorized Alpaca PAPER-only submission and reconciliation."""
+import argparse
+import json
+import os
+import uuid
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+BASE = "https://paper-api.alpaca.markets"
+def request(path, key, secret, method="GET", payload=None):
+    headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Content-Type": "application/json"}
+    req = urllib.request.Request(BASE + path, headers=headers, method=method, data=json.dumps(payload).encode() if payload else None)
+    with urllib.request.urlopen(req, timeout=20) as response:
+        return json.load(response)
+
+def run(decisions, *, enabled=False, key="", secret=""):
+    report = {"mode": "paper", "orders_attempted": 0, "orders_accepted": 0, "orders": []}
+    if not enabled:
+        report["reason"] = "PAPER_EXECUTION_NOT_AUTHORIZED"
+        return report
+    if not key or not secret:
+        report["reason"] = "MISSING_PAPER_CREDENTIALS"
+        return report
+    account = request("/v2/account", key, secret)
+    if account.get("status") != "ACTIVE" or account.get("trading_blocked"):
+        report["reason"] = "ACCOUNT_NOT_ACTIVE"
+        return report
+    for decision in decisions.get("decisions", []):
+        if decision.get("status") != "QUALIFIED":
+            continue
+        symbol = decision["symbol"]
+        notional = decision["notional_usd"]
+        entry = {"symbol": symbol, "notional_usd": notional, "status": "NOT_SUBMITTED"}
+        report["orders"].append(entry)
+        # This stage is intentionally manual-only and must not be scheduled.
+        try:
+            report["orders_attempted"] += 1
+            order = request("/v2/orders", key, secret, "POST", {
+                "symbol": symbol, "notional": str(notional), "side": "buy",
+                "type": "market", "time_in_force": "day",
+                "client_order_id": "hedgeops-paper-" + uuid.uuid4().hex[:24]
+            })
+            entry.update({"status": order.get("status", "unknown"), "order_id": order.get("id"), "client_order_id": order.get("client_order_id")})
+            report["orders_accepted"] += 1
+        except urllib.error.HTTPError as exc:
+            entry.update({"status": "REJECTED_OR_ERROR", "http_status": exc.code})
+        except (OSError, ValueError) as exc:
+            entry.update({"status": "UNKNOWN_RECONCILE_IN_ALPACA", "error_type": type(exc).__name__})
+            # Do not automatically retry ambiguous order outcomes.
+    if report["orders_attempted"] == 0:
+        report["reason"] = "NO_QUALIFYING_ORDERS"
+    return report
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--decisions", required=True, type=Path)
+    p.add_argument("--output", default="paper-order-feedback.json", type=Path)
+    a = p.parse_args()
+    enabled = os.getenv("PAPER_EXECUTION_ENABLED") == "true" and os.getenv("PAPER_EXECUTION_CONFIRM") == "I AUTHORIZE PAPER ORDERS"
+    report = run(json.loads(a.decisions.read_text()), enabled=enabled,
+                 key=os.getenv("ALPACA_PAPER_API_KEY", ""), secret=os.getenv("ALPACA_PAPER_API_SECRET", ""))
+    a.output.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
+    if os.getenv("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write(f"## Alpaca paper order feedback\n\nAttempted: {report['orders_attempted']}  Accepted: {report['orders_accepted']}\n\n")
+            for order in report["orders"]:
+                f.write(f"- {order['symbol']}: {order['status']} (order ID: {order.get('order_id', 'none')})\n")
+            if report.get("reason"):
+                f.write(f"\nNo orders submitted: {report['reason']}\n")
+
+if __name__ == "__main__":
+    main()
