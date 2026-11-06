@@ -1,0 +1,25 @@
+name: Trade Qualification Dry Run
+on:
+  schedule:
+    - cron: '15 15 * * 1-5'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evaluate provided snapshot (fail closed when absent)
+        env:
+          SNAPSHOT_JSON: ${{ vars.PAPER_MARKET_SNAPSHOT_JSON }}
+        run: |
+          if [ -z "$SNAPSHOT_JSON" ]; then
+            echo "## NO ORDERS SUBMITTED" >> "$GITHUB_STEP_SUMMARY"
+            echo "Reason: NO_VERIFIED_MARKET_SNAPSHOT" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$SNAPSHOT_JSON" > /tmp/paper-market-snapshot.json
+          python trade_qualification.py --input /tmp/paper-market-snapshot.json --output /tmp/trade-decisions.json
+          echo "Dry-run only. No broker order endpoint called." >> "$GITHUB_STEP_SUMMARY"
