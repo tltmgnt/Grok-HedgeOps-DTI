@@ -4,10 +4,11 @@ import urllib.error
 import urllib.request
 from .models import AgentAssessment
 from .validation import validate_bars
+from .restricted_https import open_api
 
 
 class GrokStrategicAgent:
-    \"\"\"Optional xAI Chat Completions adapter. No request occurs until analyze().\"\"\"
+    """Optional xAI Chat Completions adapter. No request occurs until analyze()."""
 
     endpoint = "https://api.x.ai/v1/chat/completions"
 
@@ -45,7 +46,7 @@ class GrokStrategicAgent:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with open_api(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode())
             content = body["choices"][0]["message"]["content"]
             parsed = json.loads(content)
