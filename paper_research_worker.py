@@ -3,7 +3,7 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 import time
-from autonomous_paper_session import main as session_main
+from paper_research_agent import main as session_main
 
 
 def main(argv=None):

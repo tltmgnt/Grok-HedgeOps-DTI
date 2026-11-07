@@ -1,4 +1,4 @@
-name: Autonomous Paper Sessions
+name: Paper Research Agent
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
       - '.github/workflows/paper-opportunity-intelligence.yml'
       - 'autonomous_paper_session.py'
       - 'paper_opportunity_intelligence.py'
+      - 'paper_research_agent.py'
+      - 'paper_research_worker.py'
   workflow_dispatch:
     inputs:
       monitor_only:
@@ -42,7 +44,7 @@ jobs:
         run: python -m pip install -r requirements.txt 'pytest>=8,<10'
       - name: Validate experiment before broker access
         run: python -m pytest tests/ -q
-      - name: Run bounded paper session
+      - name: Run paper research agent
         env:
           # Dedicated paper environment secrets used by the existing manual workflow.
           ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
@@ -54,15 +56,18 @@ jobs:
           PAPER_MULTI_ORDER_RUN: 'false'
           PAPER_REQUIRE_FRESH_QUOTE: 'true'
           PAPER_DATA_FEED: ${{ vars.PAPER_DATA_FEED || 'iex' }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          XAI_MODEL: ${{ vars.XAI_MODEL }}
+          PAPER_AGENT_REVIEW_MODE: ${{ vars.PAPER_AGENT_REVIEW_MODE || 'auto' }}
           MONITOR_ONLY: ${{ github.event_name == 'push' || inputs.monitor_only }}
         run: |
           if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
             echo "::error::Missing paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
           fi
           if [ "$MONITOR_ONLY" = true ]; then
-            python autonomous_paper_session.py --monitor-only
+            python paper_research_agent.py --monitor-only
           else
-            python autonomous_paper_session.py
+            python paper_research_agent.py
           fi
       - name: Publish experiment status
         if: always()
