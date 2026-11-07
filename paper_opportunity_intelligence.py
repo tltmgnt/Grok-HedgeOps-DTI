@@ -340,7 +340,7 @@ def execute(decision, *, key, secret, get=request_json):
             "order_filled": order.get("status") == "filled"}
 
 
-def main(argv=None):
+def main(argv=None, *, reviewer=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", default="opportunity-intelligence-output")
     parser.add_argument("--monitor-only", action="store_true", help="Read-only assessment; never execute orders")
@@ -361,6 +361,14 @@ def main(argv=None):
                               secret=os.getenv("ALPACA_API_SECRET", ""),
                               monitor_only=args.monitor_only)
             assessments.append(dict(decision))
+            if decision["decision"] == "READY" and reviewer is not None:
+                from copy import deepcopy
+                review = reviewer(deepcopy(decision))
+                assessments[-1]["agent_review"] = review
+                if not isinstance(review, dict) or review.get("verdict") != "PASS":
+                    result = {"decision": "SKIP", "reason": "Agent review deferred or rejected entry",
+                              "agent_review": review}
+                    break
             if decision["decision"] != "READY" or args.monitor_only:
                 result = decision
                 break

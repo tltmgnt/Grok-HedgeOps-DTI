@@ -88,3 +88,8 @@ repository/environment variables disable it. Real-money execution is not enabled
 For manual choices, see [paper purchases and decision analysis](docs/MANUAL_PAPER_PURCHASES.md).
 The manual workflow records analysis before broker approval/submission; it supports
 reference simulations and read-only reconciliation without claiming queued orders are fills.
+
+The [Paper Research Agent](docs/PAPER_RESEARCH_AGENT.md) adds a complete process:
+plan, observe, research, AI challenge, deterministic risk checks, paper execution,
+fill reconciliation and outcome evaluation. Configure `XAI_API_KEY` for Grok review;
+its absence is explicitly labeled as deterministic mode, never as AI analysis.

@@ -178,7 +178,7 @@ def performance(history):
             "scope": "Entire paper account; cash flows and manual trades can distort these values; not strategy alpha"}
 
 
-def main(argv=None):
+def main(argv=None, *, entry_reviewer=None, event_sink=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default="paper-session-output")
     parser.add_argument("--monitor-only", action="store_true")
@@ -190,6 +190,9 @@ def main(argv=None):
     report = {"mode": "PAPER_ONLY", "strategy_version": STRATEGY,
               "observed_at_utc": now.isoformat(), "status": "ERROR"}
     code = 1
+    def emit(stage, data):
+        if event_sink is not None:
+            event_sink(stage, data)
     def audit(record):
         with (out / "exit-intents.jsonl").open("a") as f:
             f.write(json.dumps(record) + "\n")
@@ -203,20 +206,26 @@ def main(argv=None):
         if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") != "true":
             raise ValueError("Fixed experiment requires fresh quote enforcement")
         report["clock"] = request_json(PAPER, "/v2/clock", key, secret)
+        emit("OBSERVE", {"market_open": report["clock"].get("is_open") is True})
         report["performance"] = performance(request_json(
             PAPER, "/v2/account/portfolio/history", key, secret,
             params={"period": "1M", "timeframe": "1D", "extended_hours": "false"}))
+        emit("MEASURE", report["performance"])
         if report["clock"].get("is_open") is not True:
             report["status"] = "MARKET_CLOSED"
             code = 0
         else:
             report["exits"] = manage_exits(key, secret, now=now, monitor_only=args.monitor_only, audit=audit)
+            emit("RECONCILE_EXITS", {"exits": report["exits"]})
             entry_args = ["--output-dir", str(out / "entry")]
             if args.monitor_only:
                 entry_args.append("--monitor-only")
-            code = entry_main(entry_args)
+            code = (entry_main(entry_args, reviewer=entry_reviewer)
+                    if entry_reviewer is not None else entry_main(entry_args))
             report["entry"] = json.loads((out / "entry" / "decision.json").read_text())
             report["status"] = "OK" if code == 0 else "ERROR"
+            emit("EXECUTION_RESULT", {"decision": report["entry"]["decision"],
+                                      "submitted_count": report["entry"].get("submitted_count", 0)})
     except (RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
         code = 1
         # Do not print broker payloads, credentials, account IDs, or exception bodies.
@@ -239,6 +248,7 @@ def main(argv=None):
                           f"Reason: {entry.get('reason', 'See session.json')}",
                           f"Submitted entries: {entry.get('submitted_count', 0)}"])
         (out / "summary.md").write_text("\n".join(lines) + "\n")
+        emit("SESSION_COMPLETE", {"status": report["status"], "exit_code": code})
         print(f"Paper experiment: {report['status']}")
     return code
 
