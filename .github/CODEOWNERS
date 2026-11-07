@@ -1,0 +1,15 @@
+# Review routing only: enforce with GitHub branch/ruleset settings.
+# Contributor attribution does not grant ownership or repository permissions.
+* @tltmgnt
+/.github/ @tltmgnt
+/.github/CODEOWNERS @tltmgnt
+/LICENSE @tltmgnt
+/SECURITY.md @tltmgnt
+/docs/IP_BOUNDARY.md @tltmgnt
+/scripts/check_public_boundary.py @tltmgnt
+/requirements* @tltmgnt
+/hedgeops/ @tltmgnt
+/hedgeops_team/ @tltmgnt
+/paper_research_agent.py @tltmgnt
+/paper_opportunity_intelligence.py @tltmgnt
+/autonomous_paper_session.py @tltmgnt
