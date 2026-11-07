@@ -9,5 +9,6 @@ hash-locked requirements file with `pip-compile --generate-hashes` in a
 controlled environment, then use `pip install --require-hashes` for deployment.
 Do not manually invent transitive versions or hashes.
 
-The paper trader remains entirely offline and has no runtime third-party
-dependencies. No live execution or broker integration is permitted.
+The offline paper simulator has no runtime third-party dependencies. The separate
+autonomous paper experiment uses fixed Alpaca paper/data hosts and the standard
+library. Real-money execution is not enabled. See docs/AUTONOMOUS_PAPER_SESSIONS.md.

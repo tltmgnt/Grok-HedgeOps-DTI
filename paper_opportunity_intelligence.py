@@ -18,6 +18,8 @@ from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from restricted_https import open_api
+
 from stock_discovery import DEFAULT_SYMBOLS, build_report, fetch_bars
 
 PAPER = "https://paper-api.alpaca.markets"
@@ -53,7 +55,7 @@ def money(value):
     return result
 
 
-def request_json(host, path, key, secret, *, params=None, payload=None, opener=urlopen):
+def request_json(host, path, key, secret, *, params=None, payload=None, opener=open_api):
     if host not in (PAPER, DATA) or not path.startswith("/") or "//" in path:
         raise ValueError("Disallowed broker endpoint")
     url = host + path + (("?" + urlencode(params)) if params else "")
@@ -97,6 +99,25 @@ def news_evidence(symbol, key, secret, *, now, get=request_json):
         if any(word in headline.lower() for word in CATALYST_WORDS):
             found.append({"headline": headline[:180], "created_at": str(item.get("created_at", ""))[:25]})
     return found[:3]
+
+
+def fresh_quote(symbol, key, secret, *, now, get=request_json):
+    feed = os.getenv("PAPER_DATA_FEED", "iex")
+    if feed not in ("iex", "sip"):
+        raise ValueError("Unsupported data feed")
+    response = get(DATA, "/v2/stocks/" + quote(symbol) + "/quotes/latest",
+                   key, secret, params={"feed": feed})
+    q = response.get("quote") if isinstance(response, dict) else None
+    if not isinstance(q, dict):
+        raise ValueError("Latest quote unavailable")
+    stamp = datetime.fromisoformat(str(q.get("t", "")).replace("Z", "+00:00"))
+    if stamp.tzinfo is None or not timedelta(0) <= now - stamp <= timedelta(seconds=120):
+        raise ValueError("Latest quote stale or future dated")
+    bid, ask = money(q.get("bp")), money(q.get("ap"))
+    if not 0 < bid <= ask or (ask - bid) / ((ask + bid) / 2) > Decimal("0.005"):
+        raise ValueError("Invalid quote or spread exceeds 0.5 percent")
+    return {"timestamp": stamp.isoformat(), "feed": feed,
+            "bid": str(bid), "ask": str(ask), "max_age_seconds": 120}
 
 
 def eligible_candidate(report):
@@ -246,8 +267,13 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
     if not evidence:
         return {"decision": "SKIP", "reason": "No recent identifiable headline catalyst"}
 
+    quote_evidence = None
+    if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") == "true":
+        quote_evidence = fresh_quote(symbol, key, secret, now=now, get=get)
     mode, order_amount, _ = allocation_policy()
-    return {"decision": "READY", "symbol": symbol, "notional_usd": str(order_amount),
+    return {"signal": candidate, "quote": quote_evidence,
+            "hypothesis": "Positive price momentum with elevated volume may persist; unproven association, not a causal finding",
+            "decision": "READY", "symbol": symbol, "notional_usd": str(order_amount),
             "client_order_id": order_id(trading_day, symbol),
             "score": candidate["score"], "catalyst_headlines": evidence,
             "reason": "Deterministic risk and news-presence gates passed"}
@@ -285,6 +311,9 @@ def execute(decision, *, key, secret, get=request_json):
     reason = broker_risk_check(now=datetime.now(timezone.utc), key=key, secret=secret, get=get)
     if reason:
         return {"decision": "SKIP", "reason": reason}
+    positions = get(PAPER, "/v2/positions", key, secret)
+    if any(p.get("symbol") == symbol for p in positions):
+        return {"decision": "SKIP", "reason": "Position appeared before submission"}
     # Check broker idempotency key before sending. A 404 is the only allowed absent result.
     try:
         existing = get(PAPER, "/v2/orders:by_client_order_id", key, secret,
@@ -294,6 +323,8 @@ def execute(decision, *, key, secret, get=request_json):
             raise
     else:
         return {"decision": "SKIP", "reason": "Order already exists", "broker_status": existing.get("status")}
+    if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") == "true":
+        fresh_quote(symbol, key, secret, now=datetime.now(timezone.utc), get=get)
     # No retry on POST, including network timeouts. Inspect Alpaca before rerunning.
     order = get(PAPER, "/v2/orders", key, secret,
                 payload={"symbol": symbol, "notional": str(order_amount),
@@ -317,6 +348,7 @@ def main(argv=None):
     now = datetime.now(timezone.utc)
     result = {"decision": "SKIP", "reason": "Not started"}
     submissions = []
+    assessments = []
     try:
         mode, _, max_attempts = allocation_policy()
         max_in_run = max_attempts if (mode == "diversified"
@@ -328,6 +360,7 @@ def main(argv=None):
                               key=os.getenv("ALPACA_API_KEY", ""),
                               secret=os.getenv("ALPACA_API_SECRET", ""),
                               monitor_only=args.monitor_only)
+            assessments.append(dict(decision))
             if decision["decision"] != "READY" or args.monitor_only:
                 result = decision
                 break
@@ -355,6 +388,10 @@ def main(argv=None):
     if args.monitor_only and result["decision"] == "READY":
         result["decision"] = "MONITOR_READY"
         result["reason"] = "Read-only assessment passed; no order submitted"
+    result["assessments"] = assessments
+    result["observed_at_utc"] = now.isoformat()
+    result["strategy_version"] = "momentum-news-v1"
+    result["quote_feed"] = os.getenv("PAPER_DATA_FEED", "iex")
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "decision.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

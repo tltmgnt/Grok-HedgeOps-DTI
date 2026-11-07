@@ -11,6 +11,7 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from restricted_https import open_api
 
 # Explicit, auditable universe; not a scan of the entire U.S. market.
 DEFAULT_SYMBOLS = (
@@ -21,7 +22,7 @@ DEFAULT_SYMBOLS = (
 BASE_URL = "https://data.alpaca.markets/v2/stocks/bars"
 
 
-def fetch_bars(symbols, key, secret, *, now=None, opener=urlopen):
+def fetch_bars(symbols, key, secret, *, now=None, opener=open_api):
     """GET historical daily IEX bars, excluding the current UTC calendar day."""
     now = now or datetime.now(timezone.utc)
     if not key or not secret:

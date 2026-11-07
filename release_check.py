@@ -19,7 +19,7 @@ def main(argv=None):
     for name in targets:
         if not compileall.compile_file(str(ROOT / name), quiet=1):
             raise SystemExit(f"FAIL: compilation of {name}")
-    command = [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
+    command = [sys.executable, "-m", "pytest", "tests", "-q"]
     if args.verbose:
         command.append("-v")
     print("Running:", " ".join(command), flush=True)
