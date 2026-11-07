@@ -45,8 +45,8 @@ jobs:
       - name: Run bounded paper session
         env:
           # Dedicated paper environment secrets used by the existing manual workflow.
-          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
           # Authorized scheduled paper experiment; explicit operator settings override.
           PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'true' }}
           PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'false' }}
@@ -56,6 +56,9 @@ jobs:
           PAPER_DATA_FEED: ${{ vars.PAPER_DATA_FEED || 'iex' }}
           MONITOR_ONLY: ${{ github.event_name == 'push' || inputs.monitor_only }}
         run: |
+          if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
+            echo "::error::Missing paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
+          fi
           if [ "$MONITOR_ONLY" = true ]; then
             python autonomous_paper_session.py --monitor-only
           else
