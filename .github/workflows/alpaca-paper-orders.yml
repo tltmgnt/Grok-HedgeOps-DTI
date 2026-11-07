@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: alpaca-paper-order-submission
+  group: paper-opportunity-auto-trader
   cancel-in-progress: false
 
 jobs:

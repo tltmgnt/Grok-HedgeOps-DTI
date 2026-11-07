@@ -3,7 +3,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
-_ALLOWED = frozenset({"api.x.ai", "paper-api.alpaca.markets"})
+_ALLOWED = frozenset({"api.x.ai", "paper-api.alpaca.markets", "data.alpaca.markets"})
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):

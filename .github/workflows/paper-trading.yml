@@ -1,87 +1,136 @@
-name: Offline Paper Trading
+name: Paper Purchases and Decision Analysis
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Select offline simulation, paper request, or approved paper order"
+        description: "Buy in Alpaca PAPER, record a decision, reconcile an order, or run the synthetic demo"
         required: true
         type: choice
-        default: simulate
+        default: alpaca_paper_buy
         options:
           - simulate
           - purchase_now
           - alpaca_paper_buy
+          - reconcile_paper_order
       symbol:
-        description: "Uppercase ticker for purchase request (e.g. SPY)"
+        description: "Uppercase stock ticker"
+        default: SPY
         required: false
         type: string
       notional_usd:
-        description: "Demo purchase amount in USD (greater than 0, maximum 200)"
+        description: "Paper purchase amount in USD ($1–$200)"
+        default: '10'
         required: false
         type: string
+      thesis:
+        description: "Your hypothesis and exit/evaluation rule (saved for analysis)"
+        type: string
+        required: false
+      reference_price:
+        description: "Optional hypothetical price for an offline reference simulation"
+        type: string
+        required: false
+      request_id:
+        description: "For reconciliation: original decision ID; otherwise leave empty"
+        type: string
+        required: false
   schedule:
     - cron: '0 16 * * *'
     - cron: '0 17 * * *'
 permissions:
   contents: read
 concurrency:
-  group: offline-paper-trading
+  group: paper-opportunity-auto-trader
   cancel-in-progress: false
 jobs:
+  decision-analysis:
+    if: github.event_name == 'workflow_dispatch' && inputs.action != 'simulate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record and analyze the decision without broker dependencies
+        env:
+          PURCHASE_SYMBOL: ${{ inputs.symbol }}
+          PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
+          PURCHASE_THESIS: ${{ inputs.thesis }}
+          REFERENCE_PRICE: ${{ inputs.reference_price }}
+          REQUEST_ID: ${{ inputs.request_id || format('hedgeops-{0}', github.run_id) }}
+          PURCHASE_ACTION: ${{ inputs.action }}
+          EXISTING_REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          if [ "$PURCHASE_ACTION" = reconcile_paper_order ] && [ -z "$EXISTING_REQUEST_ID" ]; then
+            echo 'Reconciliation requires the original request_id.'
+            exit 1
+          fi
+          args=(--symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --request-id "$REQUEST_ID" --thesis "$PURCHASE_THESIS")
+          if [ -n "$REFERENCE_PRICE" ]; then args+=(--reference-price "$REFERENCE_PRICE"); fi
+          python paper_purchase_decision.py "${args[@]}" --output-dir purchase-decision
+      - name: Publish decision analysis
+        if: always()
+        run: |
+          if [ -f purchase-decision/decision.md ]; then
+            cat purchase-decision/decision.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve decision before any broker approval or execution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-purchase-analysis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: purchase-decision/
+          retention-days: 90
+          if-no-files-found: error
+
   alpaca-purchase:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'alpaca_paper_buy'
+    needs: decision-analysis
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'alpaca_paper_buy' || inputs.action == 'reconcile_paper_order')
     environment: broker-purchase-approval
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Submit approved Alpaca paper order
+      - name: Test manual purchase contracts before broker access
+        run: python -m unittest discover -s tests -p 'test_paper_purchase_decision.py'
+      - name: Submit or reconcile PAPER order and enrich decision analysis
         env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
           PURCHASE_SYMBOL: ${{ inputs.symbol }}
           PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
-          RUN_ID: ${{ github.run_id }}
+          PURCHASE_THESIS: ${{ inputs.thesis }}
+          REFERENCE_PRICE: ${{ inputs.reference_price }}
+          REQUEST_ID: ${{ inputs.request_id || format('hedgeops-{0}', github.run_id) }}
+          PURCHASE_ACTION: ${{ inputs.action }}
         run: |
-          python alpaca_purchase.py --mode paper --symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --request-id "hedgeops-$RUN_ID" > broker-order-result.json
-      - name: Upload broker acknowledgement
-        uses: actions/upload-artifact@v7
-        with:
-          name: alpaca-broker-order-acknowledgement
-          path: broker-order-result.json
-          retention-days: 7
-          if-no-files-found: error
-  purchase-now:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'purchase_now'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-      - name: Prepare paper-only purchase request
-        env:
-          PURCHASE_SYMBOL: ${{ inputs.symbol }}
-          PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
+          args=(--symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --request-id "$REQUEST_ID" --thesis "$PURCHASE_THESIS")
+          if [ -n "$REFERENCE_PRICE" ]; then args+=(--reference-price "$REFERENCE_PRICE"); fi
+          if [ "$PURCHASE_ACTION" = reconcile_paper_order ]; then args+=(--reconcile-only); else args+=(--submit-paper); fi
+          python paper_purchase_decision.py "${args[@]}" --output-dir broker-purchase-decision
+      - name: Publish actual broker outcome
+        if: always()
         run: |
-          python purchase_now.py --symbol "$PURCHASE_SYMBOL" --notional "$PURCHASE_NOTIONAL" --output purchase-request.json
-      - name: Upload request for human review
-        uses: actions/upload-artifact@v7
+          if [ -f broker-purchase-decision/decision.md ]; then
+            cat broker-purchase-decision/decision.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve broker outcome even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: purchase-now-paper-request
-          path: purchase-request.json
-          retention-days: 7
+          name: paper-purchase-broker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: broker-purchase-decision/
+          retention-days: 90
           if-no-files-found: error
+
   paper-trading:
     if: github.event_name == 'schedule' || inputs.action == 'simulate'
     runs-on: ubuntu-latest
@@ -121,3 +170,25 @@ jobs:
             paper-trading-results.json
           retention-days: 7
           if-no-files-found: error
+
+  outcome:
+    if: always()
+    needs: [decision-analysis, alpaca-purchase, paper-trading]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain run scope
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ inputs.action }}
+          ANALYSIS_RESULT: ${{ needs.decision-analysis.result }}
+          BROKER_RESULT: ${{ needs.alpaca-purchase.result }}
+          DEMO_RESULT: ${{ needs.paper-trading.result }}
+        run: |
+          echo '## What this run actually did' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT" = schedule ]; then
+            echo 'Scheduled synthetic demo only. No purchase was requested; skipped purchase jobs are expected.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Requested action: $ACTION" >> "$GITHUB_STEP_SUMMARY"
+            echo "Decision analysis: $ANALYSIS_RESULT; broker job: $BROKER_RESULT; synthetic demo: $DEMO_RESULT" >> "$GITHUB_STEP_SUMMARY"
+            echo 'Only the broker decision artifact can confirm submission or fill; a green workflow alone cannot.' >> "$GITHUB_STEP_SUMMARY"
+          fi

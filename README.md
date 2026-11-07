@@ -6,6 +6,10 @@ Experimental temporal intelligence and strategic hedge-operations decision-suppo
 
 **v0.1 prototype:** one Grok-powered analysis agent. Multi-agent orchestration, arbitration, verification feedback, and autonomous execution are **not implemented yet**.
 
+## Review and research options
+
+Choose a path for [independent prototype review, comparative research, or operational validation](docs/REVIEW_AND_RESEARCH_OPTIONS.md). The guide defines the evidence required for each objective, records the scope of the initial offline review, and provides a submission checklist. These paths are plans, not completed certifications.
+
 ## Quick start
 
 Requires Python 3.10+ and an xAI API account with API credits (separate from SuperGrok).
@@ -76,3 +80,20 @@ Proposed state: `S_t = (T, C, O, U, R, G, V)`, representing time, capacity, opti
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+## Autonomous paper sessions
+
+See [the paper experiment runbook](docs/AUTONOMOUS_PAPER_SESSIONS.md) for
+dedicated paper credentials, scheduled runs, the kill switch, fixed entry/exit
+rules, current-data quote checks, optional persistent worker, and evaluation limits.
+Scheduled paper execution is enabled by default after merging this version unless
+repository/environment variables disable it. Real-money execution is not enabled.
+
+For manual choices, see [paper purchases and decision analysis](docs/MANUAL_PAPER_PURCHASES.md).
+The manual workflow records analysis before broker approval/submission; it supports
+reference simulations and read-only reconciliation without claiming queued orders are fills.
+
+The [Paper Research Agent](docs/PAPER_RESEARCH_AGENT.md) adds a complete process:
+plan, observe, research, AI challenge, deterministic risk checks, paper execution,
+fill reconciliation and outcome evaluation. Configure `XAI_API_KEY` for Grok review;
+its absence is explicitly labeled as deterministic mode, never as AI analysis.

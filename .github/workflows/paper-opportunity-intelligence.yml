@@ -1,10 +1,24 @@
-name: Paper Opportunity Intelligence (Auto, Disabled by Default)
+name: Paper Research Agent
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/paper-opportunity-intelligence.yml'
+      - 'autonomous_paper_session.py'
+      - 'paper_opportunity_intelligence.py'
+      - 'paper_research_agent.py'
+      - 'paper_research_worker.py'
   workflow_dispatch:
+    inputs:
+      monitor_only:
+        description: 'Read-only rehearsal (no orders)'
+        type: boolean
+        default: true
   schedule:
-    # 19:00 UTC weekdays: 11 a.m. PST / noon PDT; confirm market via Alpaca clock.
-    - cron: '0 19 * * 1-5'
+    # Includes both DST offsets; broker clock skips closed markets/holidays.
+    # Actions can be delayed. This is periodic monitoring, not a streaming daemon.
+    - cron: '17,47 13-21 * * 1-5'
 
 permissions:
   contents: read
@@ -14,81 +28,60 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  read-only-monitor:
-    # Scheduled and manual monitoring never submits orders.
+  paper-session:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    environment: paper-trading
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run offline safety tests
-        run: python -m unittest discover -s tests -p 'test_paper_opportunity_intelligence.py'
-      - name: Assess paper opportunity (read-only; no order submission)
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt 'pytest>=8,<10'
+      - name: Validate experiment before broker access
+        run: python -m pytest tests/ -q
+      - name: Run paper research agent
         env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          PAPER_AUTO_TRADING_ENABLED: 'false'
-          PAPER_AUTO_KILL_SWITCH: 'true'
-        run: python paper_opportunity_intelligence.py --monitor-only --output-dir paper-monitor-output
-      - name: Publish monitoring summary
+          # Dedicated paper environment secrets used by the existing manual workflow.
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
+          # Authorized scheduled paper experiment; explicit operator settings override.
+          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'true' }}
+          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'false' }}
+          PAPER_ALLOCATION_MODE: legacy
+          PAPER_MULTI_ORDER_RUN: 'false'
+          PAPER_REQUIRE_FRESH_QUOTE: 'true'
+          PAPER_DATA_FEED: ${{ vars.PAPER_DATA_FEED || 'iex' }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          XAI_MODEL: ${{ vars.XAI_MODEL }}
+          PAPER_AGENT_REVIEW_MODE: ${{ vars.PAPER_AGENT_REVIEW_MODE || 'auto' }}
+          MONITOR_ONLY: ${{ github.event_name == 'push' || inputs.monitor_only }}
+        run: |
+          if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
+            echo "::error::Missing paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
+          fi
+          if [ "$MONITOR_ONLY" = true ]; then
+            python paper_research_agent.py --monitor-only
+          else
+            python paper_research_agent.py
+          fi
+      - name: Publish experiment status
         if: always()
         run: |
-          if [ -f paper-monitor-output/decision.md ]; then
-            cat paper-monitor-output/decision.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f paper-session-output/summary.md ]; then
+            cat paper-session-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Paper session failed before broker assessment; inspect job logs.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Archive monitoring decision
+      - name: Preserve experiment evidence including failures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paper-opportunity-monitor-decision
-          path: paper-monitor-output/
-          retention-days: 30
-          if-no-files-found: ignore
-
-  auto-paper-trade:
-    # Both repo variables must be explicitly configured. Default is NO TRADING.
-    if: ${{ vars.PAPER_AUTO_TRADING_ENABLED == 'true' && vars.PAPER_AUTO_KILL_SWITCH == 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Run offline safety tests
-        run: python -m unittest discover -s tests -p 'test_paper_opportunity_intelligence.py'
-      # Default to diversified $10 orders; explicit repository variable can override.
-      # Existing trading enable/kill-switch gates remain mandatory.
-      - name: Assess opportunity and (if eligible) submit one PAPER order
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED }}
-          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH }}
-          PAPER_ALLOCATION_MODE: ${{ vars.PAPER_ALLOCATION_MODE || 'diversified' }}
-          PAPER_MULTI_ORDER_RUN: ${{ vars.PAPER_MULTI_ORDER_RUN || 'false' }}
-        run: python paper_opportunity_intelligence.py --output-dir opportunity-intelligence-output
-      - name: Publish decision summary
-        if: always()
-        run: |
-          if [ -f opportunity-intelligence-output/decision.md ]; then
-            cat opportunity-intelligence-output/decision.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Archive decision
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: paper-opportunity-intelligence-decision
-          path: opportunity-intelligence-output/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: paper-session-${{ github.run_id }}-${{ github.run_attempt }}
+          path: paper-session-output/
+          retention-days: 90
+          if-no-files-found: warn
