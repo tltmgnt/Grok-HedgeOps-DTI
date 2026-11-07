@@ -32,7 +32,7 @@ These results describe that commit and local environment only. They are not evid
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt 'pytest>=8,<10'
+python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
 python -m pip freeze
 python -m pip check
 python -m pytest tests/ -q

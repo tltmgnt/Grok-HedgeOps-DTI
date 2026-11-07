@@ -16,33 +16,53 @@ jobs:
       matrix:
         python-version: ["3.10", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Install dependencies and test tooling
-        run: python -m pip install -r requirements.txt 'pytest>=8,<10'
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
       - name: Check installed dependency consistency
         run: python -m pip check
+      - name: Enforce dependency and action pin policy
+        run: python scripts/check_dependency_policy.py
       - name: Run pytest suite
         run: python -m pytest tests/ -q
       - name: Run offline tests
         run: python release_check.py --verbose
+  runtime-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Verify clean production installation
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+          python -m pip check
+          python -c 'import agent, paper_research_agent; print("Runtime imports passed")'
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
-      - name: Audit installed production dependencies
+      - name: Audit locked runtime and development dependencies
         run: |
-          python -m pip install -r requirements.txt 'pip-audit>=2.7,<3'
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
           python -m pip_audit

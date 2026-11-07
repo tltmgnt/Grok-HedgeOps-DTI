@@ -1,0 +1,4 @@
+-r requirements.in
+pytest>=8,<10
+bandit>=1.7,<2
+pip-audit>=2.7,<3
