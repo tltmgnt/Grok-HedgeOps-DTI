@@ -92,7 +92,7 @@ worker polls at 60-second intervals on a continuously running machine:
 
 ```sh
 python -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt 'pytest>=8,<10'
+.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
 .venv/bin/python -m pytest tests/ -q
 # Supply ALPACA_API_KEY / ALPACA_API_SECRET securely in the process environment.
 # These must be dedicated PAPER keys. The process never selects a live host.

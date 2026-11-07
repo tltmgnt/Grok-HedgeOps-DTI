@@ -27,15 +27,15 @@ jobs:
     timeout-minutes: 15
     environment: paper-trading
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Validate tests before broker access
         run: |
-          python -m pip install -r requirements.txt pytest
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
           python -m pytest tests -q
           python offline_paper_opportunity_dry_run.py
       - name: Submit at most one bounded Alpaca paper order
@@ -51,7 +51,7 @@ jobs:
           python paper_opportunity_intelligence.py --output-dir paper-order-evidence
       - name: Upload decision and reconciliation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: alpaca-paper-order-decision
           path: paper-order-evidence/

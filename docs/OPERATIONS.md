@@ -5,7 +5,7 @@
 ```bash
 cp .env.example .env
 # Set XAI_API_KEY and XAI_MODEL
-pip install -r requirements.txt
+pip install --require-hashes --only-binary=:all: -r requirements.txt
 python live_case.py "Evaluate deployment risks" --timeout 30
 ```
 

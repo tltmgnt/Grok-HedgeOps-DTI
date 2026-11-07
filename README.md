@@ -19,7 +19,7 @@ git clone https://github.com/tltmgnt/Grok-HedgeOps-DTI.git
 cd Grok-HedgeOps-DTI
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes --only-binary=:all: -r requirements.txt
 cp .env.example .env
 ```
 
@@ -97,3 +97,5 @@ The [Paper Research Agent](docs/PAPER_RESEARCH_AGENT.md) adds a complete process
 plan, observe, research, AI challenge, deterministic risk checks, paper execution,
 fill reconciliation and outcome evaluation. Configure `XAI_API_KEY` for Grok review;
 its absence is explicitly labeled as deterministic mode, never as AI analysis.
+
+Dependency inputs and generated hash locks are described in [the maintenance policy](requirements-policy.md). CI uses `requirements-dev.txt`; production uses `requirements.txt`.
