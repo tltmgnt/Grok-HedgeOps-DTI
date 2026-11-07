@@ -6,6 +6,10 @@ Experimental temporal intelligence and strategic hedge-operations decision-suppo
 
 **v0.1 prototype:** one Grok-powered analysis agent. Multi-agent orchestration, arbitration, verification feedback, and autonomous execution are **not implemented yet**.
 
+## Review and research options
+
+Choose a path for [independent prototype review, comparative research, or operational validation](docs/REVIEW_AND_RESEARCH_OPTIONS.md). The guide defines the evidence required for each objective, records the scope of the initial offline review, and provides a submission checklist. These paths are plans, not completed certifications.
+
 ## Quick start
 
 Requires Python 3.10+ and an xAI API account with API credits (separate from SuperGrok).
