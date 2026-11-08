@@ -13,7 +13,7 @@ its original specification is supplied and mapped to implemented controls.
 
 ## Status
 
-**v0.1 prototype:** one Grok-powered analysis agent. Multi-agent orchestration, arbitration, verification feedback, and autonomous execution are **not implemented yet**.
+**Research prototype with multiple implemented modules.** The repository includes `hedgeops_team` orchestration/audit/feedback, `hedgeops` evidence and workflow modules, `arbitration.py`, structured-output tests, offline release checks and explicitly scoped paper-trading tools. These do not establish profitable decisions, independent scientific validation or unrestricted autonomous execution. Existing broker permissions and approval boundaries are unchanged.
 
 ## Review and research options
 
@@ -40,7 +40,7 @@ Edit `.env` with your own `XAI_API_KEY` and an `XAI_MODEL` ID available to your 
 python agent.py "Evaluate the risks and timing of launching a new product."
 ```
 
-The agent requests a JSON report with observations, evidence, assumptions, gaps, options, risks, recommendations and verification conditions. JSON parsing is implemented, but model output is not yet schema-validated; malformed responses may fail. Outputs are hypotheses, not verified facts.
+The agent requests a JSON report with observations, evidence, assumptions, gaps, options, risks, recommendations and verification conditions. Structured-output validation is covered by `tests/test_agent_validation.py`; validation of structure does not establish factual correctness. Outputs are hypotheses, not verified facts.
 
 ## Purchase Now — manual paper request
 
@@ -72,7 +72,7 @@ python position_loss_monitor.py --mode paper --warning-pct 5 --critical-pct 10
 
 Review [monitoring and protection guide](docs/POSITION_LOSS_MONITORING.md) before connecting any account.
 
-## Planned architecture
+## Architecture vision and implementation boundary
 
 Orchestrator Ω → Temporal / Capacity / Strategy / Risk / Hedge / Contrarian / Red-Team agents → Evidence-based Arbitrator Ω → Human-approved decision → Observation and feedback.
 
@@ -80,11 +80,7 @@ Proposed state: `S_t = (T, C, O, U, R, G, V)`, representing time, capacity, opti
 
 ## Roadmap
 
-1. Validate single-agent structured output with JSON Schema and tests.
-2. Add sourced retrieval and evidence provenance.
-3. Implement five-agent HEDGE 302 laboratory.
-4. Add conflict arbitration and human approval gates.
-5. Track predictions, falsification tests, and observed outcomes.
+Implemented components now include structured-output checks, evidence records, team/laboratory modules, arbitration, approval gates and feedback records. Remaining research work is independent evaluation, calibrated uncertainty, live-provider acceptance where authorized, and measured outcomes. The architecture vision above must not be read as evidence that every capability is operationally validated.
 
 ## License
 
@@ -112,3 +108,7 @@ Dependency inputs and generated hash locks are described in [the maintenance pol
 ## ResearchOS / TECT concept integration
 
 The [ResearchOS / Topological Epistemic Control Theory technical concept paper](docs/researchos/TECT_WHITE_PAPER.md) proposes an epistemic control and assurance infrastructure for AI-generated knowledge. Read the [repository integration status](docs/researchos/INTEGRATION.md) and [machine-readable scope](docs/researchos/integration.json) for the boundary between the concept and implemented capabilities. Performance targets are research objectives, not achieved results. This documentation addition does not implement the complete ResearchOS architecture or change operational authority.
+
+## Portfolio implementation boundary
+
+See [current implementation and shared-core integration](docs/portfolio/INTEGRATION.md) and [machine-readable status](docs/portfolio/STATUS.json). Independent empirical reproduction and real-provider acceptance remain separate from software checks.
