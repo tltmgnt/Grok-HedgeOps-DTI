@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "repository": "tltmgnt/Grok-HedgeOps-DTI",
+  "paper_version": "0.1.0",
+  "paper_file": "TECT_WHITE_PAPER.md",
+  "paper_sha256": "0855a9a48f1a3f6ff927f100b6ac97aabc05e1fce99b8f7f4a912bd29a6a0150",
+  "change_scope": "concept_documentation_only",
+  "domain": "Research and decision assurance",
+  "adapter_candidate_path": "scheduled_assurance.py",
+  "adapter_status": "not_integrated_by_this_change",
+  "full_researchos_implemented": false,
+  "independent_empirical_evaluation_completed": false,
+  "execution_authorized": false,
+  "clinical_use_authorized": false,
+  "next_step": "Link existing release evidence to scoped claim records without widening broker or order authority.",
+  "required_future_capabilities": [
+    "versioned_claim_registry",
+    "authenticated_provenance",
+    "evidence_independence_estimation",
+    "policy_bound_transition_controller",
+    "change_triggered_dependency_revalidation",
+    "independent_reproduction",
+    "held_out_adversarial_evaluation",
+    "externally_reviewed_assurance_records"
+  ]
+}
