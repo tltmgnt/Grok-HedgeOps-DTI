@@ -2,6 +2,15 @@
 
 Experimental temporal intelligence and strategic hedge-operations decision-support framework.
 
+## Publication boundary
+
+This is a public Apache-2.0 repository. Dependency hardening and code-owner routing
+protect aspects of change integrity; they do not make the published implementation
+confidential. Keep proprietary material outside this repository. See the
+[IP boundary and remaining GitHub administration](docs/IP_BOUNDARY.md) and
+[security reporting policy](SECURITY.md). Ω-R3B conformance remains unverified until
+its original specification is supplied and mapped to implemented controls.
+
 ## Status
 
 **v0.1 prototype:** one Grok-powered analysis agent. Multi-agent orchestration, arbitration, verification feedback, and autonomous execution are **not implemented yet**.
