@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "repository": "tltmgnt/Grok-HedgeOps-DTI",
+  "status": "bounded_research_software",
+  "runtime_present": true,
+  "canonical_tect_source": {
+    "schema_version": 1,
+    "repository": "tltmgnt/ResearchOs",
+    "commit": "cc4cc4e79bfdb5dfd769387c3d5aa19e8f646077",
+    "release_file": "core_release.json",
+    "shared_modules": [
+      "__init__.py",
+      "__main__.py",
+      "core.py",
+      "io.py",
+      "experiments.py",
+      "pilot.py"
+    ],
+    "domain_adapter_shared": false
+  },
+  "external_independent_reproduction_completed": false,
+  "live_provider_and_key_custody_validation_completed": false,
+  "deployment_authorization_granted_by_this_change": false,
+  "new_scheduled_triggers_added": false,
+  "new_paid_services_provisioned": false,
+  "scope": "Software implementation and documentation; external experimental acceptance remains separate"
+}
