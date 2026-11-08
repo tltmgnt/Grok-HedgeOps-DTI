@@ -1,6 +1,7 @@
 """Always-running paper session worker. Stops on errors; never blindly retries."""
 import argparse
 import json
+import sqlite3
 from workflow_ledger import Ledger
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,11 +25,15 @@ def main(argv=None):
             if args.monitor_only:
                 command.append('--monitor-only')
             code = session_main(command)
-            ledger = Ledger(args.ledger)
             try:
-                ledger.ingest(str(run.resolve()), json.loads((run / 'session.json').read_text()))
-            finally:
-                ledger.close()
+                ledger = Ledger(args.ledger)
+                try:
+                    ledger.ingest(str(run.resolve()), json.loads((run / 'session.json').read_text()))
+                finally:
+                    ledger.close()
+            except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+                print('Session evidence could not be indexed; reconcile before restarting.')
+                return 1
             if code:
                 return code  # Reconcile the broker before manually restarting.
             time.sleep(args.interval_seconds)
