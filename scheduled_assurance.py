@@ -11,6 +11,7 @@ CADENCES = {'3,13,23,33,43,53 * * * *': 'ten-minute',
             '13 23 * * *': 'daily', '23 0 1 * *': 'monthly',
             '43 0 1 1,4,7,10 *': 'quarterly'}
 MAX_BYTES = 48000
+CONFIGURATION_HELP = "Configure the repository Actions secret ASSURANCE_EVIDENCE_BUNDLE_JSON with the real reviewed register and artifacts; see docs/ASSURANCE_REGISTER.md. Rerunning without configuration cannot resolve this failure."
 
 
 def check_bundle(raw, cadence, now):
@@ -67,11 +68,15 @@ def main():
         report, code = check_bundle(os.getenv('ASSURANCE_EVIDENCE_BUNDLE_JSON', ''),
                                     cadence, datetime.now(timezone.utc))
     print(json.dumps(report, sort_keys=True))
+    if report['status'] == 'NOT_CONFIGURED':
+        print('::error title=Evidence configuration required::' + CONFIGURATION_HELP)
     summary = os.getenv('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as stream:
             stream.write('## Scheduled evidence gates\n\n')
             stream.write('```json\n' + json.dumps(report, indent=2) + '\n```\n\n')
+            if report['status'] == 'NOT_CONFIGURED':
+                stream.write('**Activation blocked:** ' + CONFIGURATION_HELP + '\n\n')
             stream.write('Evidence completeness only. No orders, suitability determination or certification.\n')
     return code
 

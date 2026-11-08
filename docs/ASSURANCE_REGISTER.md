@@ -185,3 +185,18 @@ Actions runs. Missing configuration reports `NOT_CONFIGURED` and fails; malforme
 bundles report `INVALID_EVIDENCE`; incomplete gates report `EVIDENCE_INCOMPLETE`.
 A successful check is `ELIGIBLE_FOR_HUMAN_REVIEW`, never certification or execution
 permission. Existing GitHub notification preferences determine failure notifications.
+
+### Activation incident: November 8, 2026
+
+Run 42478302602 completed checkout and Python setup, then failed with
+`NOT_CONFIGURED`: the evidence-bundle environment value was empty. PR #53
+introduced the schedule but explicitly left the private secret unconfigured.
+The hourly offline simulation covers a different scope and cannot close this gate.
+
+Recovery requires the actual private register, artifacts and independent reviews.
+Package them using the instructions above, configure the named repository Actions
+secret, then verify a subsequent scheduled or manual run on main. A populated secret
+alone does not establish validity: only a current successful assessment verifies the
+bundle. Do not paste evidence into public issues, logs or pull requests. Do not use
+synthetic test evidence for activation or change missing configuration into success.
+Until then, activation remains blocked and repeated retries cannot fix it.

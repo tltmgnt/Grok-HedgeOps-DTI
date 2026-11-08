@@ -1,3 +1,5 @@
+import io
+import contextlib
 import base64
 from datetime import datetime, timezone
 import json
@@ -78,3 +80,15 @@ class ScheduledAssuranceTests(unittest.TestCase):
         self.assertFalse(result['execution_authorized'])
         self.assertFalse(result['certification_issued'])
         self.assertNotIn('synthetic private evidence', json.dumps(result))
+
+    def test_missing_configuration_explains_recovery_and_still_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary = Path(directory) / 'summary.md'
+            output = io.StringIO()
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(summary)}, clear=True):
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(main(), 1)
+            self.assertIn('::error title=Evidence configuration required::', output.getvalue())
+            self.assertIn('ASSURANCE_EVIDENCE_BUNDLE_JSON', summary.read_text())
+            self.assertIn('real reviewed register', summary.read_text())
+            self.assertIn('NOT_CONFIGURED', output.getvalue())
