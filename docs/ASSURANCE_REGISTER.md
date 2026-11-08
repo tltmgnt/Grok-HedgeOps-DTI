@@ -116,3 +116,72 @@ expiry, future observations, path traversal, symlink escape, mismatched strategy
 and subject, changed review packets, duplicate requirements and self-review. Real
 production acceptance additionally requires authenticated reviewers, controlled
 artifact ingestion, private storage, audit retention and substantive expert review.
+
+## Automatic schedule
+
+The **Scheduled Evidence Gates** Actions workflow checks all three gates on each
+cadence below. Times are UTC; these are current evidence snapshots, not retrospective
+profit calculations or automatic approval renewals.
+
+| Cadence | UTC trigger | Pacific time during November 2026 |
+|---|---|---|
+| Every 10 minutes | Every hour at 03 13 23 33 43 53 | Same minutes every hour |
+| Daily | 23:13 every day | 3:13 pm PST |
+| Monthly | 00:23 on the first calendar day | 4:23 pm PST on the preceding day |
+| Quarterly | 00:43 on January April July October 1 | Preceding day at 4:43 pm PST or 5:43 pm PDT |
+
+Monthly/quarterly labels identify review checkpoints; the checker evaluates evidence
+at actual execution time. GitHub may delay or skip schedules. No trading-calendar
+or report-generation promise is implied. Manual dispatch is also supported. Schedules
+start only when the workflow is on the default branch and Actions permits runs.
+
+### Private evidence configuration
+
+Set the repository Actions secret `ASSURANCE_EVIDENCE_BUNDLE_JSON` to a compact JSON
+object containing `register` and `artifacts`. `register` is the existing complete
+register; `artifacts` maps relative evidence paths to base64-encoded bytes:
+
+```json
+{"register": {"schema_version": 1, "strategy_version": "...", "gates": {}},
+ "artifacts": {"protocol.json": "BASE64_OF_ACTUAL_ARTIFACT_BYTES"}}
+```
+
+This illustration is intentionally incomplete and will fail validation. Populate all
+three gates and include the actual reviewed artifacts. The wrapper permits at most
+48000 UTF-8 bytes and 100 artifacts. Larger evidence collections need a separately
+implemented private storage integration; do not publish sensitive source files to
+work around the limit. Repository secret access must be restricted to trusted code
+and maintainers; anyone able to alter trusted Actions code may expose its secrets.
+
+Use this local packaging pattern with your private register and evidence root:
+
+```python
+import base64
+import json
+from pathlib import Path
+register = json.loads(Path('private-register.json').read_text())
+root = Path('private/evidence').resolve()
+artifacts = {}
+for gate in register['gates'].values():
+    for record in gate['evidence']:
+        relative = Path(record['path'])
+        path = (root / relative).resolve()
+        if relative.is_absolute() or not path.is_relative_to(root):
+            raise ValueError('Evidence must be inside the private root')
+        artifacts[record['path']] = base64.b64encode(path.read_bytes()).decode()
+Path('private-bundle.json').write_text(json.dumps({'register': register, 'artifacts': artifacts}))
+```
+
+Secure and remove temporary bundle copies according to your retention policy. Refresh
+the secret when evidence or approvals change. The schedule never fabricates missing
+artifacts, refreshes expiry dates or creates human approvals. Expired evidence and
+reviews continue to fail until supplied by their owners.
+
+The wrapper materializes evidence in a temporary private runner directory, validates
+it, deletes it and writes only fixed statuses, gate eligibility and gap counts to
+stdout and the job summary. It uploads no artifacts, uses no broker credentials and
+sends no external notifications. Counts and pass/fail status remain visible in public
+Actions runs. Missing configuration reports `NOT_CONFIGURED` and fails; malformed
+bundles report `INVALID_EVIDENCE`; incomplete gates report `EVIDENCE_INCOMPLETE`.
+A successful check is `ELIGIBLE_FOR_HUMAN_REVIEW`, never certification or execution
+permission. Existing GitHub notification preferences determine failure notifications.
