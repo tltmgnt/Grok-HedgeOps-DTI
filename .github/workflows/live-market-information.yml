@@ -1,0 +1,37 @@
+name: Live Market Information
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Uppercase stock symbol (read-only; no orders)'
+        required: true
+        type: string
+        default: SPY
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: paper-trading
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Read current market evidence
+        env:
+          MARKET_SYMBOL: ${{ inputs.symbol }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
+          PAPER_DATA_FEED: ${{ vars.PAPER_DATA_FEED || 'iex' }}
+        run: python live_market_information.py --symbol "$MARKET_SYMBOL"
+      - name: Preserve timestamped information including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: live-market-information-${{ github.run_id }}
+          path: live-market-information.json
+          retention-days: 7

@@ -114,3 +114,28 @@ reference-simulation path because of this agent.
 
 API references: https://docs.x.ai/developers/model-capabilities/text/structured-outputs
 and https://docs.x.ai/developers/model-capabilities/legacy/chat-completions .
+
+## On-demand current market information
+
+**Actions → Live Market Information → Run workflow** retrieves a read-only snapshot
+for the specified symbol using the existing `paper-trading` credentials. It does
+not submit orders or read balances/holdings. Download the timestamped JSON artifact.
+Locally, run `python live_market_information.py --symbol SPY` with secure environment
+credentials. No additional Python dependencies are required for this command.
+
+The result includes broker market-open status, next open/close, quote timestamp,
+observation time, quote age, bid/ask, source and feed coverage. Quotes older than
+120 seconds, future timestamps and spreads over 0.5% are unavailable, never current.
+IEX is single-exchange coverage; SIP is consolidated and requires entitlement.
+The chosen feed is explicit; the command never silently falls back to another feed.
+The existing paper entry and exit paths use the same quote guard when required by
+the paper experiment. The headline gate now independently rejects missing, malformed,
+timezone-free, future and older-than-seven-day publication timestamps instead of
+trusting only the provider's date filter. Headlines remain unverified claims.
+
+This is an on-demand REST snapshot, not continuous streaming or a guarantee of
+correct information. Its timestamp describes that observation only. For ongoing
+paper sessions use the existing worker with a minimum 60-second polling interval
+and a hosted runtime; disable the Actions scheduler before deploying one worker.
+The manual snapshot workflow does not start that worker or enable trading. Existing
+paper limits, live-buy approval, credentials and kill switches still govern orders.

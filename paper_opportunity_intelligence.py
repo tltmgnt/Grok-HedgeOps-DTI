@@ -108,8 +108,15 @@ def news_evidence(symbol, key, secret, *, now, get=request_json, shadow=None):
         symbols = item.get("symbols")
         if not isinstance(headline, str) or not isinstance(symbols, list) or symbol not in symbols:
             continue
+        # Provider query parameters are not proof that every returned item is current.
+        try:
+            published = datetime.fromisoformat(str(item.get("created_at", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if published.tzinfo is None or not timedelta(0) <= now - published <= timedelta(days=7):
+            continue
         if any(word in headline.lower() for word in CATALYST_WORDS):
-            found.append({"headline": headline[:180], "created_at": str(item.get("created_at", ""))[:25]})
+            found.append({"headline": headline[:180], "created_at": published.isoformat()})
     return found[:3]
 
 
@@ -129,7 +136,9 @@ def fresh_quote(symbol, key, secret, *, now, get=request_json):
     if not 0 < bid <= ask or (ask - bid) / ((ask + bid) / 2) > Decimal("0.005"):
         raise ValueError("Invalid quote or spread exceeds 0.5 percent")
     return {"timestamp": stamp.isoformat(), "feed": feed,
-            "bid": str(bid), "ask": str(ask), "max_age_seconds": 120}
+            "bid": str(bid), "ask": str(ask), "max_age_seconds": 120,
+            "observed_at_utc": now.isoformat(), "age_seconds": (now - stamp).total_seconds(),
+            "source": DATA, "coverage": "single_exchange" if feed == "iex" else "consolidated"}
 
 
 def eligible_candidate(report):
