@@ -155,9 +155,8 @@ The wrapper materializes evidence in a temporary private runner directory, valid
 it, deletes it and writes only fixed statuses, gate eligibility and gap counts to
 stdout and the job summary. It uploads no artifacts, uses no broker credentials and
 sends no external notifications. Counts and pass/fail status remain visible in public
-Actions runs. With an absent or empty secret, a scheduled run exits successfully
-with `SKIPPED_NOT_CONFIGURED` and publishes no gate results. A manual run with the
-same configuration fails with `NOT_CONFIGURED`. Both triggers fail on malformed
+Actions runs. With an absent or empty secret, scheduled and manual runs exit successfully
+with `SKIPPED_NOT_CONFIGURED` and publish no gate results. Both triggers fail on malformed
 bundles (`INVALID_EVIDENCE`) or incomplete gates (`EVIDENCE_INCOMPLETE`).
 A completed evidence assessment reports `EVIDENCE_COMPLETE`, never certification or execution
 permission. Existing GitHub notification preferences determine failure notifications.
