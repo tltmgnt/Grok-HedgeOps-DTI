@@ -29,7 +29,7 @@ def broker(host, path, key, secret, *, params=None, payload=None):
         return {"is_open": True}
     if path == "/v2/account":
         return {"status": "ACTIVE", "trading_blocked": False,
-                "account_blocked": False, "cash": "1000", "buying_power": "1000"}
+                "account_blocked": False, "cash": "1000", "buying_power": "1000", "equity": "1000", "last_equity": "1000"}
     if path == "/v2/positions":
         return []
     if path == "/v2/orders":
@@ -139,7 +139,7 @@ class OpportunityTests(unittest.TestCase):
         def low_cash(*args, **kwargs):
             if args[1] == "/v2/account":
                 return {"status": "ACTIVE", "trading_blocked": False, "account_blocked": False,
-                        "cash": "105", "buying_power": "105"}
+                        "cash": "105", "buying_power": "105", "equity": "1000", "last_equity": "1000"}
             return broker(*args, **kwargs)
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
@@ -191,7 +191,7 @@ class OpportunityTests(unittest.TestCase):
         def mock_get(host, path, key, secret, *, params=None, payload=None):
             if path == "/v2/account":
                 return {"status": "ACTIVE", "trading_blocked": False, "account_blocked": False,
-                        "cash": "1000", "buying_power": "1000"}
+                        "cash": "1000", "buying_power": "1000", "equity": "1000", "last_equity": "1000"}
             if path == "/v2/positions":
                 return []
             if path == "/v2/orders" and params["status"] == "open":
@@ -374,7 +374,7 @@ class OpportunityTests(unittest.TestCase):
                             "trading_blocked": False,
                             "account_blocked": False,
                             "cash": "1000",
-                            "buying_power": "1000",
+                            "buying_power": "1000", "equity": "1000", "last_equity": "1000",
                         }
                     if path == "/v2/positions":
                         return []
@@ -425,7 +425,7 @@ class OpportunityTests(unittest.TestCase):
                     "trading_blocked": False,
                     "account_blocked": False,
                     "cash": "1000",
-                    "buying_power": "1000",
+                    "buying_power": "1000", "equity": "1000", "last_equity": "1000",
                 }
             if path == "/v2/positions":
                 return []

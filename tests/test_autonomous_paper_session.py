@@ -197,7 +197,7 @@ def test_full_session_http_contract_buy_reconcile_and_exit():
             result = {'timestamp': [1, 2], 'equity': [1000, 1001]}
         elif path == '/v2/account':
             result = {'status': 'ACTIVE', 'trading_blocked': False, 'account_blocked': False,
-                      'cash': '1000', 'buying_power': '1000'}
+                      'cash': '1000', 'buying_power': '1000', 'equity': '1000', 'last_equity': '1000'}
         elif path == '/v2/clock': result = {'is_open': True}
         elif path == '/v2/positions': result = positions
         elif path == '/v2/orders':

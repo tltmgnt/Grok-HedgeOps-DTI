@@ -45,6 +45,15 @@ All opportunity order workflows share a concurrency group to reduce this risk.
 
 - One $10 entry attempt per Eastern trading date, $100 account-wide daily buy
   commitment cap, five total account positions, and $100 minimum post-order cash reserve.
+- New entries also require current and prior-close broker equity: block buys at
+  an account-wide equity decline of 1% or more, limit each fixed-size buy to 2%
+  of current equity, and require post-entry gross position market value at most
+  20% of current equity. Long and short market values count by absolute value;
+  pending sells do not release exposure. Missing or invalid evidence fails closed.
+  These entry gates are rechecked immediately before submission and do not block
+  strategy exits. The $10 size is never increased or resized to pass a gate.
+  Equity change includes all account activity and can be distorted by cash flows;
+  it is not a cash-flow-adjusted daily P/L measure or a forced-liquidation rule.
 - News presence and momentum are unproven entry hypotheses. A headline keyword is
   not verification that an earnings event is good, novel, or causally relevant.
 - Before each entry/exit POST, require a bid/ask quote no older than 120 seconds,
