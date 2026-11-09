@@ -31,7 +31,7 @@ def evaluate(rows, *, cutoff, embargo_days=5, cost_bps=10):
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError('Invalid observation')
-        identity = (row['symbol'], row['entry_at'])
+        identity = (row['symbol'], stamp(row['entry_at']))
         if identity in seen:
             raise ValueError('Duplicate symbol/entry observation')
         seen.add(identity)

@@ -61,6 +61,11 @@ is available through the offline CLI; no previous snapshot means `NO_BASELINE`.
 
 ## Evaluation, ablations and acceptance
 
+See [empirical reliability protocol and paired diagnostics](NEWS_EMPIRICAL_RELIABILITY.md)
+for the next-stage frozen experiment, missing-label accounting, date-block uncertainty
+estimates and comparisons that isolate H0's incremental value. These remain research
+diagnostics, not an empirical success claim or trading authorization.
+
 `news_shadow_evaluation.py` compares three nested exploratory cohorts: the existing
 keyword baseline; a graph cohort; and the same graph cohort with H0 connectivity.
 The graph cohort requires >=2 families, zero excluded records, a window-novel
