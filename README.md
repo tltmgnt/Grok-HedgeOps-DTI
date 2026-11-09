@@ -108,6 +108,11 @@ Dependency inputs and generated hash locks are described in [the maintenance pol
 
 ## ResearchOS / TECT concept integration
 
+The [stock-news topology shadow module](docs/NEWS_TOPOLOGY.md) separately records
+deduplicated headline graphs, lexical conflict flags and H0 persistence alongside
+existing paper assessments. It has no order authority. Offline replay and cohort
+comparison tools support research; predictive benefit remains unproven.
+
 The [ResearchOS / Topological Epistemic Control Theory technical concept paper](docs/researchos/TECT_WHITE_PAPER.md) proposes an epistemic control and assurance infrastructure for AI-generated knowledge. Read the [repository integration status](docs/researchos/INTEGRATION.md) and [machine-readable scope](docs/researchos/integration.json) for the boundary between the concept and implemented capabilities. Performance targets are research objectives, not achieved results. This documentation addition does not implement the complete ResearchOS architecture or change operational authority.
 
 ## Portfolio implementation boundary
