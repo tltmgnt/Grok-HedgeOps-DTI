@@ -1,0 +1,14 @@
+{
+  "method_version": "news-reliability-v1",
+  "feature_version": "news-topology-shadow-v1",
+  "frozen_at": null,
+  "cutoff": "2026-11-09T00:00:00Z",
+  "label_policy": "five_calendar_days_next_session_close",
+  "embargo_days": 5,
+  "min_dates": 60,
+  "block_days": [5, 10, 20],
+  "cost_bps": [10, 25, 50],
+  "resamples": 20000,
+  "trials_declared": 1,
+  "seed": 104729
+}
