@@ -82,7 +82,7 @@ def order_id(day, symbol):
     return f"{PREFIX}-{day:%Y%m%d}-{symbol.lower()}"
 
 
-def news_evidence(symbol, key, secret, *, now, get=request_json):
+def news_evidence(symbol, key, secret, *, now, get=request_json, shadow=None):
     # Fail closed when recent company news cannot be retrieved.
     start = (now - timedelta(days=7)).isoformat().replace("+00:00", "Z")
     end = now.isoformat().replace("+00:00", "Z")
@@ -91,6 +91,15 @@ def news_evidence(symbol, key, secret, *, now, get=request_json):
                            "limit": 50, "sort": "desc"})
     if not isinstance(response, dict) or not isinstance(response.get("news"), list):
         raise ValueError("News response unavailable")
+    if shadow is not None:
+        # Observation only: never feed graph features to the reviewer or executor.
+        # Use the same response; no extra provider call, order, or paid AI request.
+        from news_topology import build_snapshot
+        try:
+            shadow.update(build_snapshot(response['news'], symbol=symbol, asof=now.isoformat()))
+        except (ValueError, TypeError, KeyError, OverflowError):
+            shadow.update(mode='SHADOW_ONLY', order_authority=False, status='INVALID_INPUT',
+                          predictive_validation='UNPROVEN')
     found = []
     for item in response["news"]:
         if not isinstance(item, dict):
@@ -287,9 +296,11 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
     if (not isinstance(asset, dict) or asset.get("status") != "active"
         or asset.get("tradable") is not True or asset.get("fractionable") is not True):
         return {"decision": "SKIP", "reason": "Asset not confirmed fractionable and tradable"}
-    evidence = news_evidence(symbol, key, secret, now=now, get=get)
+    news_shadow = {}
+    evidence = news_evidence(symbol, key, secret, now=now, get=get, shadow=news_shadow)
     if not evidence:
-        return {"decision": "SKIP", "reason": "No recent identifiable headline catalyst"}
+        return {"decision": "SKIP", "reason": "No recent identifiable headline catalyst",
+                "news_topology_shadow": news_shadow}
 
     quote_evidence = None
     if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") == "true":
@@ -300,6 +311,7 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
             "decision": "READY", "symbol": symbol, "notional_usd": str(order_amount),
             "client_order_id": order_id(trading_day, symbol),
             "score": candidate["score"], "catalyst_headlines": evidence,
+            "news_topology_shadow": news_shadow,
             "reason": "Deterministic risk and news-presence gates passed"}
 
 
