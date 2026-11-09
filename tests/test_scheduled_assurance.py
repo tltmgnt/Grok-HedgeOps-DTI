@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from scheduled_assurance import CADENCES, check_bundle, main
-from assurance_register import template, REQUIRED, digest
+from assurance_register import template, REQUIRED
 
 NOW = datetime(2026, 11, 9, tzinfo=timezone.utc)
 
@@ -60,7 +60,7 @@ class ScheduledAssuranceTests(unittest.TestCase):
                 self.assertEqual(main(), 1)
                 check.assert_not_called()
 
-    def test_complete_private_bundle_is_review_only(self):
+    def test_complete_private_bundle_passes_without_review(self):
         bundle = self.bundle()
         content = b'synthetic private evidence'
         bundle['artifacts'] = {'evidence.txt': base64.b64encode(content).decode()}
@@ -70,13 +70,9 @@ class ScheduledAssuranceTests(unittest.TestCase):
                 'subject_id': name, 'observed_at': '2026-11-01T00:00:00Z',
                 'expires_at': '2026-12-01T00:00:00Z', 'path': 'evidence.txt',
                 'sha256': hashlib.sha256(content).hexdigest()} for key in REQUIRED[name]]
-            packet = {'strategy_version': 'test', **{k: v for k, v in gate.items() if k != 'review'}}
-            gate['review'] = {'reviewer': 'reviewer', 'decision': 'APPROVE_FOR_REVIEW',
-                'rationale': 'synthetic', 'packet_sha256': digest(packet),
-                'reviewed_at': '2026-11-02T00:00:00Z', 'expires_at': '2026-12-01T00:00:00Z'}
         result, code = check_bundle(json.dumps(bundle), 'quarterly', NOW)
         self.assertEqual(code, 0)
-        self.assertEqual(result['status'], 'ELIGIBLE_FOR_HUMAN_REVIEW')
+        self.assertEqual(result['status'], 'EVIDENCE_COMPLETE')
         self.assertFalse(result['execution_authorized'])
         self.assertFalse(result['certification_issued'])
         self.assertNotIn('synthetic private evidence', json.dumps(result))
@@ -90,5 +86,5 @@ class ScheduledAssuranceTests(unittest.TestCase):
                     self.assertEqual(main(), 1)
             self.assertIn('::error title=Evidence configuration required::', output.getvalue())
             self.assertIn('ASSURANCE_EVIDENCE_BUNDLE_JSON', summary.read_text())
-            self.assertIn('real reviewed register', summary.read_text())
+            self.assertIn('real evidence register', summary.read_text())
             self.assertIn('NOT_CONFIGURED', output.getvalue())

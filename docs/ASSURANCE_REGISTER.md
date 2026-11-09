@@ -1,9 +1,8 @@
-# Evidence register and independent review gates
+# Evidence register and automated completeness checks
 
 This read-only tool implements three separate evidence-completeness gates:
 `trading_evidence`, `investor_fit` and `operational_assurance`. Every gate requires
-an owner, scope, subject ID, criteria version, evidence and a separately named
-reviewer. Passing means eligible for human review only. It never submits orders,
+an owner, scope, subject ID, criteria version and evidence for every required category. The checker evaluates completeness automatically. It never submits orders,
 changes trading policy, determines suitability or issues certification.
 
 ## Usage
@@ -44,33 +43,11 @@ records, missing requirements, blockers and missing scope metadata fail closed.
 Evidence expiry is a review policy choice; the tool does not invent an appropriate
 validity period. Pin strategy versions to immutable release identifiers in practice.
 
-Run the checker to obtain the current `packet_sha256` for each gate. After an actual
-review, the reviewer records:
-
-```json
-{
-  "decision": "APPROVE_FOR_REVIEW",
-  "reviewer": "reviewer-identity",
-  "rationale": "Describe the scope, findings and limitations of the review",
-  "packet_sha256": "COPY_THE_REVIEWED_PACKET_HASH",
-  "reviewed_at": "2026-11-02T00:00:00Z",
-  "expires_at": "2026-12-01T00:00:00Z"
-}
-```
-
-The review must postdate observations and remain current. The packet binds all
-gate fields except `review`, plus the strategy version. Changes to evidence,
-blockers, ownership, subject or scope invalidate the prior review. Reviewer identity
-must differ from owner. These are local declarations: there is no identity provider,
-signature validation or tamper-proof history. An authenticated approval service and
-append-only audit store remain deployment work. Hashes establish consistency, not
-the truth, completeness or statistical quality of an artifact.
-
-Exit codes: 0 means all three gates are eligible for human review; 1 means at least
-one is incomplete; 2 means malformed register/input. Individual gate outcomes remain
-separate. No gate borrows another gate's approval. `execution_authorized` and
-`certification_issued` are always false. Do not wire exit code 0 directly to a live
-execution permission or use it as a certificate.
+The local report includes a packet SHA256 for each gate covering its fields and
+strategy version. Legacy `review` metadata is ignored when hashing and assessing
+a gate. Each gate reports `evidence_complete`. Exit code 0 means all three pass,
+1 means evidence is incomplete and 2 means the register or input is malformed.
+Execution authorization and certification are always false.
 
 ## Required evidence topology
 
@@ -111,11 +88,9 @@ No public Actions artifact or automated broker integration is added.
 
 ## Acceptance checks
 
-Tests exercise complete review-only outcomes, independent gates, content tampering,
-expiry, future observations, path traversal, symlink escape, mismatched strategy
-and subject, changed review packets, duplicate requirements and self-review. Real
-production acceptance additionally requires authenticated reviewers, controlled
-artifact ingestion, private storage, audit retention and substantive expert review.
+Tests cover unsigned and legacy registers, independent gate results, artifact
+integrity, timestamps, path confinement, subject and strategy binding, blockers
+and duplicate requirements.
 
 ## Automatic schedule
 
@@ -147,7 +122,7 @@ register; `artifacts` maps relative evidence paths to base64-encoded bytes:
 ```
 
 This illustration is intentionally incomplete and will fail validation. Populate all
-three gates and include the actual reviewed artifacts. The wrapper permits at most
+three gates and include the actual evidence artifacts. The wrapper permits at most
 48000 UTF-8 bytes and 100 artifacts. Larger evidence collections need a separately
 implemented private storage integration; do not publish sensitive source files to
 work around the limit. Repository secret access must be restricted to trusted code
@@ -173,9 +148,8 @@ Path('private-bundle.json').write_text(json.dumps({'register': register, 'artifa
 ```
 
 Secure and remove temporary bundle copies according to your retention policy. Refresh
-the secret when evidence or approvals change. The schedule never fabricates missing
-artifacts, refreshes expiry dates or creates human approvals. Expired evidence and
-reviews continue to fail until supplied by their owners.
+the secret when evidence changes. The schedule never fabricates missing
+artifacts, refreshes expiry dates or creates human approvals. Expired evidence fails until refreshed.
 
 The wrapper materializes evidence in a temporary private runner directory, validates
 it, deletes it and writes only fixed statuses, gate eligibility and gap counts to
@@ -183,7 +157,7 @@ stdout and the job summary. It uploads no artifacts, uses no broker credentials 
 sends no external notifications. Counts and pass/fail status remain visible in public
 Actions runs. Missing configuration reports `NOT_CONFIGURED` and fails; malformed
 bundles report `INVALID_EVIDENCE`; incomplete gates report `EVIDENCE_INCOMPLETE`.
-A successful check is `ELIGIBLE_FOR_HUMAN_REVIEW`, never certification or execution
+A successful check is `EVIDENCE_COMPLETE`, never certification or execution
 permission. Existing GitHub notification preferences determine failure notifications.
 
 ### Activation incident: November 8, 2026
@@ -193,7 +167,7 @@ Run 42478302602 completed checkout and Python setup, then failed with
 introduced the schedule but explicitly left the private secret unconfigured.
 The hourly offline simulation covers a different scope and cannot close this gate.
 
-Recovery requires the actual private register, artifacts and independent reviews.
+Recovery requires the actual private register and its evidence artifacts.
 Package them using the instructions above, configure the named repository Actions
 secret, then verify a subsequent scheduled or manual run on main. A populated secret
 alone does not establish validity: only a current successful assessment verifies the

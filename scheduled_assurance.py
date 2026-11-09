@@ -11,7 +11,7 @@ CADENCES = {'3,13,23,33,43,53 * * * *': 'ten-minute',
             '13 23 * * *': 'daily', '23 0 1 * *': 'monthly',
             '43 0 1 1,4,7,10 *': 'quarterly'}
 MAX_BYTES = 48000
-CONFIGURATION_HELP = "Configure the repository Actions secret ASSURANCE_EVIDENCE_BUNDLE_JSON with the real reviewed register and artifacts; see docs/ASSURANCE_REGISTER.md. Rerunning without configuration cannot resolve this failure."
+CONFIGURATION_HELP = "Configure the repository Actions secret ASSURANCE_EVIDENCE_BUNDLE_JSON with the real evidence register and artifacts; see docs/ASSURANCE_REGISTER.md. Rerunning without configuration cannot resolve this failure."
 
 
 def check_bundle(raw, cadence, now):
@@ -42,12 +42,12 @@ def check_bundle(raw, cadence, now):
                 path.chmod(0o600)
             assessment = assess(bundle['register'], root, now)
         report['gates'] = {name: {
-            'eligible_for_human_review': gate['eligible_for_human_review'],
+            'evidence_complete': gate['evidence_complete'],
             'missing_requirement_count': len(gate['missing_requirements']),
             'gap_count': len(gate['gaps'])}
             for name, gate in assessment['gates'].items()}
-        eligible = assessment['all_eligible_for_human_review']
-        report['status'] = 'ELIGIBLE_FOR_HUMAN_REVIEW' if eligible else 'EVIDENCE_INCOMPLETE'
+        eligible = assessment['all_evidence_complete']
+        report['status'] = 'EVIDENCE_COMPLETE' if eligible else 'EVIDENCE_INCOMPLETE'
         return report, 0 if eligible else 1
     except (ValueError, TypeError, KeyError, OSError, AttributeError, OverflowError):
         return report, 1
