@@ -29,6 +29,9 @@ MAX_ORDER = Decimal("10.00")
 MAX_DAILY = Decimal("100.00")
 MIN_CASH = Decimal("100.00")
 MAX_POSITIONS = 5
+MAX_ENTRY_EQUITY = Decimal("0.02")
+MAX_GROSS_EXPOSURE = Decimal("0.20")
+MAX_DAILY_EQUITY_LOSS = Decimal("0.01")
 # Explicit opt-in allocation modes; legacy behavior remains the default.
 ALLOCATION_MODES = {"legacy": (Decimal("10.00"), 1),
                     "diversified": (Decimal("10.00"), 10),
@@ -167,13 +170,22 @@ def daily_buy_commitments(orders, trading_day):
 
 
 def broker_risk_check(*, now, key, secret, get=request_json):
-    mode, order_amount, max_attempts = allocation_policy()
     """Reconcile account and orders; return a fail-closed reason or None."""
+    mode, order_amount, max_attempts = allocation_policy()
     account = get(PAPER, "/v2/account", key, secret)
     if (not isinstance(account, dict) or account.get("status") != "ACTIVE"
         or account.get("trading_blocked") is not False
         or account.get("account_blocked") is not False):
         return "Paper account not confirmed active and unblocked"
+    # Broker equity change is an account-wide guard, not strategy P/L.
+    equity = money(account.get("equity"))
+    previous_equity = money(account.get("last_equity"))
+    if equity <= 0 or previous_equity <= 0:
+        raise ValueError("Positive current and prior-close equity required")
+    if equity <= previous_equity * (1 - MAX_DAILY_EQUITY_LOSS):
+        return "Daily account equity loss limit reached"
+    if order_amount > equity * MAX_ENTRY_EQUITY:
+        return "Entry exceeds 2 percent of account equity"
     if min(money(account.get("cash")), money(account.get("buying_power"))) < MIN_CASH + order_amount:
         return "Insufficient post-order cash reserve or buying power"
 
@@ -182,8 +194,20 @@ def broker_risk_check(*, now, key, secret, get=request_json):
         raise ValueError("Positions response unavailable")
     if len(positions) >= MAX_POSITIONS:
         return "Position-count cap reached"
+    gross = Decimal("0")
+    for position in positions:
+        # Short exposure must increase gross risk, never offset long exposure.
+        try:
+            value = Decimal(str(position.get("market_value")))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError("Position market value unavailable") from None
+        if not value.is_finite():
+            raise ValueError("Invalid position market value")
+        gross += abs(value)
+    if gross + order_amount > equity * MAX_GROSS_EXPOSURE:
+        return "Post-entry gross exposure exceeds 20 percent of account equity"
 
-        # Check all open orders, including those submitted before today.
+    # Check all open orders, including those submitted before today.
     open_orders = get(
         PAPER, "/v2/orders", key, secret,
         params={"status": "open", "limit": 500, "direction": "desc"},

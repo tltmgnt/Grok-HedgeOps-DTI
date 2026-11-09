@@ -90,7 +90,8 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 See [the paper experiment runbook](docs/AUTONOMOUS_PAPER_SESSIONS.md) for
 dedicated paper credentials, scheduled runs, the kill switch, fixed entry/exit
-rules, current-data quote checks, optional persistent worker, and evaluation limits.
+rules, account-equity loss and exposure entry gates, current-data quote checks,
+optional persistent worker, and evaluation limits.
 Scheduled paper execution is enabled by default after merging this version unless
 repository/environment variables disable it. Real-money execution is not enabled.
 
