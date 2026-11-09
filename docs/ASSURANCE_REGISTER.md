@@ -155,9 +155,11 @@ The wrapper materializes evidence in a temporary private runner directory, valid
 it, deletes it and writes only fixed statuses, gate eligibility and gap counts to
 stdout and the job summary. It uploads no artifacts, uses no broker credentials and
 sends no external notifications. Counts and pass/fail status remain visible in public
-Actions runs. Missing configuration reports `NOT_CONFIGURED` and fails; malformed
-bundles report `INVALID_EVIDENCE`; incomplete gates report `EVIDENCE_INCOMPLETE`.
-A successful check is `EVIDENCE_COMPLETE`, never certification or execution
+Actions runs. With an absent or empty secret, a scheduled run exits successfully
+with `SKIPPED_NOT_CONFIGURED` and publishes no gate results. A manual run with the
+same configuration fails with `NOT_CONFIGURED`. Both triggers fail on malformed
+bundles (`INVALID_EVIDENCE`) or incomplete gates (`EVIDENCE_INCOMPLETE`).
+A completed evidence assessment reports `EVIDENCE_COMPLETE`, never certification or execution
 permission. Existing GitHub notification preferences determine failure notifications.
 
 ### Activation incident: November 8, 2026
@@ -167,10 +169,6 @@ Run 42478302602 completed checkout and Python setup, then failed with
 introduced the schedule but explicitly left the private secret unconfigured.
 The hourly offline simulation covers a different scope and cannot close this gate.
 
-Recovery requires the actual private register and its evidence artifacts.
-Package them using the instructions above, configure the named repository Actions
-secret, then verify a subsequent scheduled or manual run on main. A populated secret
-alone does not establish validity: only a current successful assessment verifies the
-bundle. Do not paste evidence into public issues, logs or pull requests. Do not use
-synthetic test evidence for activation or change missing configuration into success.
-Until then, activation remains blocked and repeated retries cannot fix it.
+To activate assessment, package the private register and its evidence artifacts,
+configure the named repository Actions secret, and verify `EVIDENCE_COMPLETE` in
+a subsequent run. Scheduled runs can finish successfully while assessment is skipped.

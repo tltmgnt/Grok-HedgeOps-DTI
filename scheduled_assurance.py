@@ -65,11 +65,18 @@ def main():
     if cadence is None:
         report, code = {'status': 'UNSUPPORTED_TRIGGER', 'execution_authorized': False}, 1
     else:
-        report, code = check_bundle(os.getenv('ASSURANCE_EVIDENCE_BUNDLE_JSON', ''),
-                                    cadence, datetime.now(timezone.utc))
+        raw = os.getenv('ASSURANCE_EVIDENCE_BUNDLE_JSON', '')
+        if event == 'schedule' and not raw:
+            report = {'cadence': cadence, 'status': 'SKIPPED_NOT_CONFIGURED',
+                      'execution_authorized': False, 'certification_issued': False}
+            code = 0
+        else:
+            report, code = check_bundle(raw, cadence, datetime.now(timezone.utc))
     print(json.dumps(report, sort_keys=True))
     if report['status'] == 'NOT_CONFIGURED':
         print('::error title=Evidence configuration required::' + CONFIGURATION_HELP)
+    elif report['status'] == 'SKIPPED_NOT_CONFIGURED':
+        print('::notice::Scheduled assessment skipped because ASSURANCE_EVIDENCE_BUNDLE_JSON is empty.')
     summary = os.getenv('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as stream:

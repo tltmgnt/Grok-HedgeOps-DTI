@@ -77,6 +77,20 @@ class ScheduledAssuranceTests(unittest.TestCase):
         self.assertFalse(result['certification_issued'])
         self.assertNotIn('synthetic private evidence', json.dumps(result))
 
+    def test_schedule_skips_only_an_empty_bundle(self):
+        env = {'GITHUB_EVENT_NAME': 'schedule', 'ASSURANCE_CRON': next(iter(CADENCES))}
+        for raw, code, status in [('', 0, 'SKIPPED_NOT_CONFIGURED'), (' ', 1, 'INVALID_EVIDENCE')]:
+            with self.subTest(raw=raw), patch.dict(os.environ, env, clear=True):
+                os.environ['ASSURANCE_EVIDENCE_BUNDLE_JSON'] = raw
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(main(), code)
+                report = json.loads(output.getvalue().splitlines()[0])
+                self.assertEqual(report['status'], status)
+                self.assertFalse(report['execution_authorized'])
+                self.assertFalse(report['certification_issued'])
+                self.assertNotIn('gates', report)
+
     def test_missing_configuration_explains_recovery_and_still_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             summary = Path(directory) / 'summary.md'
