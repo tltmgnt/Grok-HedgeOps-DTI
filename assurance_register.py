@@ -14,9 +14,9 @@ REQUIRED = {
         'service_objectives', 'recovery', 'security', 'change_governance', 'independent_assessment'),
 }
 CLAIMS = {
-    'trading_evidence': 'Evidence is complete for human review of the scoped historical evaluation; future profitability is not established.',
-    'investor_fit': 'Evidence is complete for human review of this investor and strategy scope; suitability is not automatically determined.',
-    'operational_assurance': 'Evidence is complete for human review of the named deployment and criteria; certification is not automatically issued.',
+    'trading_evidence': 'Evidence is complete for the scoped historical evaluation; future profitability is not established.',
+    'investor_fit': 'Evidence is complete for this investor and strategy scope; suitability is not automatically determined.',
+    'operational_assurance': 'Evidence is complete for the named deployment and criteria; certification is not automatically issued.',
 }
 
 
@@ -39,12 +39,12 @@ def digest(value):
 def template():
     return {'schema_version': 1, 'strategy_version': '', 'gates': {
         name: {'owner': '', 'scope': '', 'subject_id': '', 'criteria_version': '',
-               'blockers': [], 'evidence': [], 'review': None}
+               'blockers': [], 'evidence': []}
         for name in REQUIRED}}
 
 
 def assess(register, root, now):
-    """Verify private local artifacts and review binding. Return no sensitive paths/content."""
+    """Verify private local artifacts and evidence completeness. Return no sensitive paths/content."""
     now = stamp(now.isoformat())
     root = Path(root).resolve()
     if not isinstance(register, dict) or type(register.get('schema_version')) is not int or register['schema_version'] != 1:
@@ -72,7 +72,7 @@ def assess(register, root, now):
         if not isinstance(evidence, list):
             evidence = []
             gaps.append('invalid_evidence')
-        valid, seen, observations = set(), set(), []
+        valid, seen = set(), set()
         for record in evidence:
             try:
                 key = record['requirement']
@@ -94,34 +94,21 @@ def assess(register, root, now):
                 if hashlib.sha256(path.read_bytes()).hexdigest() != record['sha256']:
                     raise ValueError('artifact digest mismatch')
                 valid.add(key)
-                observations.append(stamp(record['observed_at']))
             except (KeyError, TypeError, ValueError, OSError, AttributeError):
                 gaps.append('invalid_evidence_record')
         missing = sorted(set(requirements) - valid)
-        review = gate.get('review')
         packet = {'strategy_version': register['strategy_version'],
                   **{k: v for k, v in gate.items() if k != 'review'}}
         packet_hash = digest(packet)
-        try:
-            if (review['decision'] != 'APPROVE_FOR_REVIEW'
-                    or not nonempty(review['reviewer'])
-                    or review['reviewer'].strip() == gate['owner'].strip()
-                    or not nonempty(review['rationale'])
-                    or review['packet_sha256'] != packet_hash
-                    or not stamp(review['reviewed_at']) <= now < stamp(review['expires_at'])
-                    or any(t > stamp(review['reviewed_at']) for t in observations)):
-                raise ValueError('review invalid')
-        except (KeyError, TypeError, ValueError, AttributeError):
-            gaps.append('missing_or_invalid_independent_review')
         eligible = not gaps and not missing
-        results[name] = {'eligible_for_human_review': eligible,
+        results[name] = {'evidence_complete': eligible,
                          'missing_requirements': missing, 'gaps': sorted(set(gaps)),
                          'packet_sha256': packet_hash,
                          'permitted_claim': CLAIMS[name] if eligible else 'Evidence incomplete; no affirmative readiness claim.'}
     return {'assessed_at': now.isoformat(), 'gates': results,
-            'all_eligible_for_human_review': all(g['eligible_for_human_review'] for g in results.values()),
+            'all_evidence_complete': all(g['evidence_complete'] for g in results.values()),
             'execution_authorized': False, 'certification_issued': False,
-            'limitations': 'Local hashes establish artifact consistency, not truth or reviewer authentication. No financial or legal conclusion is automated.'}
+            'limitations': 'Local hashes establish artifact consistency, not truth. No financial or legal conclusion is automated.'}
 
 
 def main():
@@ -142,7 +129,7 @@ def main():
         print(json.dumps({'status': 'INVALID_REGISTER', 'execution_authorized': False}))
         return 2
     print(json.dumps(report, indent=2))
-    return 0 if report['all_eligible_for_human_review'] else 1
+    return 0 if report['all_evidence_complete'] else 1
 
 
 if __name__ == '__main__':
