@@ -125,9 +125,25 @@ def verify_standard_contract(plan_result, contract):
         raise ValueError('Broker contract strike mismatch')
     if not multiplier.is_finite() or multiplier != 100:
         raise ValueError('Adjusted or nonstandard contract requires separate review')
-    if not isinstance(contract.get('symbol'), str) or not re.fullmatch(
-            r'[A-Z0-9 .]{10,32}', contract['symbol']):
+    # OCC-style option symbol must independently encode the same underlying,
+    # expiration, right and strike. Merely checking the metadata fields would
+    # allow a conflicting contract symbol to pass.
+    option_symbol = contract.get('symbol')
+    if not isinstance(option_symbol, str):
         raise ValueError('Broker option contract symbol missing or invalid')
+    match = re.fullmatch(r'([A-Z][A-Z0-9.]{0,5}) *([0-9]{6})([CP])([0-9]{8})',
+                         option_symbol)
+    if match is None:
+        raise ValueError('Broker option contract symbol missing or invalid')
+    root, yymmdd, right, strike_code = match.groups()
+    expected_right = 'C' if expected_type == 'call' else 'P'
+    if (root != plan_result['symbol']
+            or yymmdd != plan_result['expiration'][2:4]
+                         + plan_result['expiration'][5:7]
+                         + plan_result['expiration'][8:10]
+            or right != expected_right
+            or Decimal(int(strike_code)) / 1000 != strike):
+        raise ValueError('Option contract symbol conflicts with contract metadata')
     # Verification is only as trustworthy as the supplied broker metadata.
     # Do not mark it broker-verified without an authenticated source.
     return {
