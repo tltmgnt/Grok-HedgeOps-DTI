@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
         OR (broker_order_id IS NULL AND broker_status IS NULL)
     ),
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT paper_order_ledger_timestamp_order CHECK (updated_at >= created_at)
 );
 -- CREATE TABLE IF NOT EXISTS does not upgrade older tables. Enforce the
 -- invariant for pre-existing deployments as well; invalid historical rows
@@ -81,6 +82,20 @@ BEGIN
         CHECK (notional_usd > 0 AND notional_usd <> 'NaN'::numeric);
     END IF;
 END $$;
+-- Also reject impossible timestamp ordering on inserts and pre-existing rows.
+-- An invalid legacy row blocks initialization until it is investigated.
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'paper_order_ledger'::regclass
+          AND conname = 'paper_order_ledger_timestamp_order'
+    ) THEN
+        ALTER TABLE paper_order_ledger
+        ADD CONSTRAINT paper_order_ledger_timestamp_order
+        CHECK (updated_at >= created_at);
+    END IF;
+END $;
 -- Protect confirmed evidence against direct SQL updates and other writers.
 CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
