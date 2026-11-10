@@ -151,6 +151,36 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_direct_sql_cannot_downgrade_confirmed_order(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-immutable'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='immutable-order', broker_status='accepted')
+                for statement, value in (
+                    ('UPDATE paper_order_ledger SET state=%s WHERE request_id=%s',
+                     'BROKER_UNCONFIRMED'),
+                    ('UPDATE paper_order_ledger SET broker_order_id=%s WHERE request_id=%s',
+                     'replacement-order'),
+                ):
+                    with self.subTest(value=value):
+                        with self.assertRaises(psycopg.errors.CheckViolation):
+                            conn.execute(statement, (value, rid))
+                        conn.rollback()
+                row = conn.execute(
+                    'SELECT state, broker_order_id FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()
+                self.assertEqual(row, ('BROKER_CONFIRMED', 'immutable-order'))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_migration_fails_closed_on_invalid_historical_confirmation(self):
         import psycopg
         from psycopg import sql
