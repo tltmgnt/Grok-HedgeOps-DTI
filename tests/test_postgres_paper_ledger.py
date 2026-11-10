@@ -126,6 +126,9 @@ class PostgresConcurrencyTests(unittest.TestCase):
         rid = RID + '-sql-guard'
         with psycopg.connect(dsn) as conn:
             conn.execute(DDL)
+            # PostgreSQL rolls back transactional DDL too. Preserve the
+            # schema before intentionally provoking a CHECK violation.
+            conn.commit()
             try:
                 with self.assertRaises(psycopg.errors.CheckViolation):
                     conn.execute(
