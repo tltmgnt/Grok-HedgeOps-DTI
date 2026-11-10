@@ -94,6 +94,12 @@ BEGIN
         RAISE EXCEPTION 'Reserved order intent cannot be changed'
             USING ERRCODE = '23514';
     END IF;
+    -- Audit timestamps must not move backwards, even through direct SQL.
+    -- Equal timestamps remain valid for idempotent writes.
+    IF NEW.updated_at IS NULL OR NEW.updated_at < OLD.updated_at THEN
+        RAISE EXCEPTION 'Ledger update timestamp cannot move backwards'
+            USING ERRCODE = '23514';
+    END IF;
     -- Once a submission has become ambiguous, reverting to RESERVED would
     -- falsely suggest that no broker attempt has happened.
     IF OLD.state = 'BROKER_UNCONFIRMED'
