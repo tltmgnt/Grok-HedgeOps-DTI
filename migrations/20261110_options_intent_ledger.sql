@@ -109,6 +109,15 @@ CREATE TRIGGER options_intent_audit_trigger
     AFTER INSERT OR UPDATE ON options_order_intents
     FOR EACH ROW EXECUTE FUNCTION options_intent_audit();
 
+-- A runtime connection must not be able to forge audit records or change
+-- ledger state with unrestricted table writes. This migration intentionally
+-- grants no privileges; operators must provision a separate least-privilege
+-- role and reviewed SECURITY DEFINER transition functions before execution.
+-- Lock down PUBLIC explicitly, including on pre-existing installations.
+REVOKE ALL ON TABLE options_order_intents FROM PUBLIC;
+REVOKE ALL ON TABLE options_order_events FROM PUBLIC;
+REVOKE ALL ON SEQUENCE options_order_events_event_id_seq FROM PUBLIC;
+
 -- Fail closed: no runtime access granted here. A separately reviewed,
 -- least-privilege DB role and authenticated broker reconciliation are required
 -- before any options order can be submitted. Never retry an ambiguous POST.
