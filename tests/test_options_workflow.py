@@ -82,6 +82,18 @@ class OptionsWorkflowTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     options(limit_price=value)
 
+    def test_ambiguous_expiration_formats_fail_closed(self):
+        for expiry in ('20300101', '2030-1-01', '2030-01-1', '2030-W01-1'):
+            with self.subTest(expiry=expiry):
+                with self.assertRaisesRegex(ValueError, 'YYYY-MM-DD'):
+                    options(expiration=expiry)
+
+    def test_unbounded_strike_and_premium_fail_closed(self):
+        for field in ('strike', 'limit_price'):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, 'planner safety bound'):
+                    options(**{field: '1000000.01'})
+
     def test_invalid_contracts_and_symbols_fail_closed(self):
         for count in (0, -1, 101, True, 1.5):
             with self.subTest(count=count):
