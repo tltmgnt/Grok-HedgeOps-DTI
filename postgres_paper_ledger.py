@@ -89,7 +89,7 @@ class PostgresPaperLedger:
                            ELSE %s END,
                        updated_at=now()
                    WHERE request_id=%s
-                     AND (broker_order_id IS NULL OR %s IS NULL
+                     AND (broker_order_id IS NULL OR %s::text IS NULL
                           OR broker_order_id=%s)""",
                 (state, broker_order_id, state, broker_status, request_id,
                  broker_order_id, broker_order_id),
