@@ -151,6 +151,34 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_reinitializing_ddl_preserves_confirmed_guard(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-guard-reinit'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='guard-reinit-order',
+                                  broker_status='filled')
+                # A second startup replaces the trigger without a DROP window.
+                conn.execute(DDL)
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(
+                        "UPDATE paper_order_ledger SET symbol='AAPL' "
+                        "WHERE request_id=%s", (rid,))
+                conn.rollback()
+                row = conn.execute(
+                    'SELECT symbol, broker_status FROM paper_order_ledger '
+                    'WHERE request_id=%s', (rid,)).fetchone()
+                self.assertEqual(row, ('SPY', 'filled'))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_unconfirmed_row_cannot_claim_broker_evidence(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
