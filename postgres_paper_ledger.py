@@ -79,9 +79,9 @@ BEGIN
     -- A filled order is terminal: stale reconciliation must not erase
     -- evidence of execution by restoring an earlier broker status.
     IF OLD.state = 'BROKER_CONFIRMED'
-       AND OLD.broker_status = 'filled'
-       AND NEW.broker_status IS DISTINCT FROM 'filled' THEN
-        RAISE EXCEPTION 'Filled broker status cannot regress'
+       AND OLD.broker_status IN ('filled', 'canceled', 'expired', 'rejected')
+       AND NEW.broker_status IS DISTINCT FROM OLD.broker_status THEN
+        RAISE EXCEPTION 'Terminal broker status cannot be overwritten'
             USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
