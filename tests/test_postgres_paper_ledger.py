@@ -78,6 +78,20 @@ class LedgerRecoveryTests(unittest.TestCase):
 @unittest.skipUnless(os.getenv('TEST_PAPER_LEDGER_DATABASE_URL'),
                      'requires disposable PostgreSQL test database')
 class PostgresConcurrencyTests(unittest.TestCase):
+    def test_failed_transaction_releases_session_lock(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            with self.assertRaises(psycopg.errors.UndefinedTable):
+                with ledger.lock(RID + '-failed'):
+                    conn.execute('SELECT * FROM table_that_does_not_exist_ledger')
+            # If the lock leaked, a separate session could not acquire it.
+            with psycopg.connect(dsn) as other:
+                with PostgresPaperLedger(other).lock(RID + '-failed'):
+                    pass
+
     def test_cross_connection_lock_and_durable_reservation(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
