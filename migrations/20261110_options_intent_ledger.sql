@@ -61,6 +61,12 @@ BEGIN
         OLD.payload_sha256, OLD.created_at) THEN
         RAISE EXCEPTION 'options order intent identity is immutable';
     END IF;
+    -- Once assigned, a broker order ID is immutable. Otherwise a replay or
+    -- faulty reconciliation could silently relink an intent to another order.
+    IF OLD.broker_order_id IS NOT NULL
+       AND NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id THEN
+        RAISE EXCEPTION 'options broker order ID is immutable once assigned';
+    END IF;
     IF NEW.status IS DISTINCT FROM OLD.status THEN
         IF NOT (
             (OLD.status = 'reserved' AND NEW.status IN ('submission_unknown', 'rejected', 'cancelled'))
