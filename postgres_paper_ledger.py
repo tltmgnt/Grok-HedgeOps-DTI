@@ -80,6 +80,15 @@ class PostgresPaperLedger:
         return inserted
 
     def record(self, request_id, *, confirmed, broker_order_id=None, broker_status=None):
+        # A confirmed row must always have usable broker evidence. Never let a
+        # caller mark a reservation confirmed with a missing/blank identity.
+        if confirmed and (not isinstance(broker_order_id, str)
+                          or not broker_order_id.strip()
+                          or not isinstance(broker_status, str)
+                          or not broker_status.strip()):
+            raise LedgerError('Broker confirmation requires order ID and status')
+        if not confirmed and (broker_order_id is not None or broker_status is not None):
+            raise LedgerError('Unconfirmed record cannot supply broker evidence')
         state = 'BROKER_CONFIRMED' if confirmed else 'BROKER_UNCONFIRMED'
         with self.connection.cursor() as cur:
             cur.execute(
