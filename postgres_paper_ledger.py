@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
 -- CREATE TABLE IF NOT EXISTS does not upgrade older tables. Enforce the
 -- invariant for pre-existing deployments as well; invalid historical rows
 -- cause startup to fail closed until an operator reconciles them.
-DO $
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
@@ -45,7 +45,7 @@ BEGIN
             )
         );
     END IF;
-END $;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
     ON paper_order_ledger (broker_order_id)
     WHERE broker_order_id IS NOT NULL;
