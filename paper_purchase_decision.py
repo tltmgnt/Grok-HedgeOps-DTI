@@ -152,6 +152,24 @@ def write_report(out, report):
     (out/'decision.md').write_text('\n'.join(lines)+'\n')
 
 
+def reserve_local_submission(out, request_id):
+    """Reserve one local attempt atomically; never remove on timeout.
+
+    This does not coordinate separate ephemeral GitHub runners.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    marker = out / 'submission-attempt.json'
+    try:
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise RuntimeError('Submission already reserved; reconcile only') from None
+    with os.fdopen(fd, 'w') as stream:
+        json.dump({'request_id': request_id, 'state': 'ATTEMPT_RESERVED'}, stream)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--symbol', required=True)
@@ -184,6 +202,13 @@ def main(argv=None):
             'source': reference['source'], 'broker_fill': False,
             'assumption': 'Full immediate hypothetical allocation at reference mark; excludes fees/slippage'}
         report['status'] = 'REFERENCE_SIMULATION_RECORDED'
+    # Prevent local replay before any broker POST; retain marker on ambiguity.
+    if args.submit_paper:
+        try:
+            reserve_local_submission(args.output_dir, args.request_id)
+        except (RuntimeError, OSError) as exc:
+            print(f'Paper submission blocked: {exc}')
+            return 1
     # Preserve the intent and analysis BEFORE touching the broker, including POST timeouts.
     write_report(args.output_dir, report)
     code = 0
