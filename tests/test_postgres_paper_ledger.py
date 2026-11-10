@@ -151,6 +151,30 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_invalid_reservation_notional_is_rejected_before_insert(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-precision'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                for amount in (Decimal('25.001'), Decimal('NaN'),
+                               Decimal('Infinity'), Decimal('0'),
+                               Decimal('-1'), Decimal('10000000000')):
+                    with self.subTest(amount=str(amount)):
+                        with ledger.lock(rid):
+                            with self.assertRaisesRegex(LedgerError, 'notional'):
+                                ledger.reserve(rid, 'SPY', amount)
+                self.assertIsNone(conn.execute(
+                    'SELECT request_id FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone())
+                with ledger.lock(rid):
+                    self.assertTrue(ledger.reserve(rid, 'SPY', Decimal('25.01')))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_reservation_creation_time_cannot_be_rewritten(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
