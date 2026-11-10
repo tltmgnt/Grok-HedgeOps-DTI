@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from postgres_paper_ledger import DDL, LedgerError, PostgresPaperLedger, reconcile_with_ledger, submit_with_ledger
 
-RID = 'hedgeops-ledger-test-20261110'
+RID = 'hedgeops-ledger-20261110'
 
 
 class FakeLedger:
