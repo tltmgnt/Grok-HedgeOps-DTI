@@ -30,7 +30,7 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
     # Accept only plain decimal strings. Decimal accepts scientific notation,
     # whitespace, and Unicode digits that are ambiguous in manual order input.
     for field, value in (('strike', strike), ('limit_price', limit_price)):
-        if not isinstance(value, str) or not re.fullmatch(r'[0-9]+(?:\\.[0-9]{1,2})?', value):
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]+(?:\.[0-9]{1,2})?', value):
             raise ValueError(field + ' must be a plain positive USD decimal')
     try:
         expiry = date.fromisoformat(expiration)
