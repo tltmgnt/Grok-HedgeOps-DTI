@@ -100,6 +100,11 @@ def submit_with_ledger(ledger, symbol, amount, request_id, *, key, secret, get):
     from paper_opportunity_intelligence import PAPER
     from paper_purchase_decision import acknowledgment, submit
 
+    # Missing credentials are a configuration failure, not an attempted order.
+    # Do not poison a durable request ID before any broker interaction is possible.
+    if not key or not secret:
+        raise ValueError('Paper credentials missing')
+
     with ledger.lock(request_id):
         first_attempt = ledger.reserve(request_id, symbol, amount)
         if not first_attempt:
