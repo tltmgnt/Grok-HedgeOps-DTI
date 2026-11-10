@@ -139,6 +139,36 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
             (intent,)).fetchone()[0]
         self.assertEqual(actual, broker_id)
 
+    def test_reservation_and_transitions_are_audited_atomically(self):
+        intent = self.reserve()
+        broker_id = str(uuid.uuid4())
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'submission_unknown' WHERE intent_id = %s",
+            (intent,))
+        self.db.execute(
+            """UPDATE options_order_intents
+               SET status = 'acknowledged', broker_order_id = %s
+               WHERE intent_id = %s""",
+            (broker_id, intent))
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'filled' WHERE intent_id = %s",
+            (intent,))
+        rows = self.db.execute(
+            """SELECT event_type, details FROM options_order_events
+               WHERE intent_id = %s ORDER BY event_id""", (intent,)).fetchall()
+        self.assertEqual([row[0] for row in rows],
+                         ['reserved', 'submission_unknown', 'acknowledged', 'filled'])
+        self.assertEqual(rows[1][1]['previous_status'], 'reserved')
+        self.assertEqual(rows[2][1]['broker_order_id'], broker_id)
+        with self.assertRaises(errors.RaiseException):
+            self.db.execute(
+                "UPDATE options_order_intents SET status = 'reserved' WHERE intent_id = %s",
+                (intent,))
+        count = self.db.execute(
+            'SELECT count(*) FROM options_order_events WHERE intent_id = %s',
+            (intent,)).fetchone()[0]
+        self.assertEqual(count, 4)
+
     def test_append_only_events(self):
         intent = self.reserve()
         event_id = self.db.execute(
