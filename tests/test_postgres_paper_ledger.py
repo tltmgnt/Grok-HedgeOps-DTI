@@ -60,12 +60,14 @@ class LedgerRecoveryTests(unittest.TestCase):
                 raise RuntimeError('POST timed out')
             self.fail(path)
 
-        with self.assertRaises(RuntimeError):
-            submit_with_ledger(ledger, 'SPY', Decimal('25'), RID, key='k', secret='s', get=broker)
+        first = submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
+                                   key='k', secret='s', get=broker)
+        self.assertTrue(first['reconciled_existing_order'])
         result = submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
                                     key='k', secret='s', get=broker)
         self.assertTrue(result['reconciled_existing_order'])
         self.assertEqual(calls.count('/v2/orders'), 1)
+        self.assertTrue(ledger.records[-1]['confirmed'])
 
     def test_missing_after_crash_never_reposts(self):
         ledger = FakeLedger()
