@@ -72,6 +72,14 @@ BEGIN
         RAISE EXCEPTION 'Confirmed broker identity cannot be changed'
             USING ERRCODE = '23514';
     END IF;
+    -- A filled order is terminal: stale reconciliation must not erase
+    -- evidence of execution by restoring an earlier broker status.
+    IF OLD.state = 'BROKER_CONFIRMED'
+       AND OLD.broker_status = 'filled'
+       AND NEW.broker_status IS DISTINCT FROM 'filled' THEN
+        RAISE EXCEPTION 'Filled broker status cannot regress'
+            USING ERRCODE = '23514';
+    END IF;
     RETURN NEW;
 END
 $guard$;
