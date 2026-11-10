@@ -151,6 +151,33 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_terminal_broker_statuses_reject_stale_updates(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            for status in ('filled', 'canceled', 'expired', 'rejected'):
+                rid = RID + '-terminal-' + status
+                try:
+                    with ledger.lock(rid):
+                        ledger.reserve(rid, 'SPY', Decimal('25'))
+                        ledger.record(rid, confirmed=True,
+                                      broker_order_id='terminal-' + status,
+                                      broker_status=status)
+                        with self.assertRaises(psycopg.errors.CheckViolation):
+                            ledger.record(rid, confirmed=True,
+                                          broker_order_id='terminal-' + status,
+                                          broker_status='accepted')
+                    row = conn.execute(
+                        'SELECT broker_status FROM paper_order_ledger '
+                        'WHERE request_id=%s', (rid,)).fetchone()
+                    self.assertEqual(row, (status,))
+                finally:
+                    conn.rollback()
+                    conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+                    conn.commit()
+
     def test_reinitializing_ddl_preserves_confirmed_guard(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
