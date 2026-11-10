@@ -91,7 +91,7 @@ DROP TRIGGER IF EXISTS paper_order_ledger_confirmed_guard ON paper_order_ledger;
 CREATE TRIGGER paper_order_ledger_confirmed_guard
 BEFORE UPDATE ON paper_order_ledger
 FOR EACH ROW EXECUTE FUNCTION paper_order_ledger_guard_confirmed();
-DO $
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
@@ -104,7 +104,7 @@ BEGIN
             OR (broker_order_id IS NULL AND broker_status IS NULL)
         );
     END IF;
-END $;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
     ON paper_order_ledger (broker_order_id)
     WHERE broker_order_id IS NOT NULL;
