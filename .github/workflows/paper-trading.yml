@@ -100,11 +100,12 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test manual purchase contracts before broker access
-        run: python -m unittest discover -s tests -p 'test_paper_purchase_decision.py'
+        run: |
+          python -m unittest discover -s tests -p 'test_paper_purchase_decision.py'
       - name: Submit or reconcile PAPER order and enrich decision analysis
         env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
           PURCHASE_SYMBOL: ${{ inputs.symbol }}
           PURCHASE_NOTIONAL: ${{ inputs.notional_usd }}
           PURCHASE_THESIS: ${{ inputs.thesis }}
