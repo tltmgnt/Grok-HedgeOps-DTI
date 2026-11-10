@@ -1,5 +1,16 @@
 name: Options Actions (Plan Only)
 on:
+  push:
+    branches: [hardening/postgres-paper-ledger]
+    paths:
+      - 'options_workflow.py'
+      - 'tests/test_options_workflow.py'
+      - '.github/workflows/options-actions.yml'
+  pull_request:
+    paths:
+      - 'options_workflow.py'
+      - 'tests/test_options_workflow.py'
+      - '.github/workflows/options-actions.yml'
   workflow_dispatch:
     inputs:
       action:
@@ -53,6 +64,7 @@ jobs:
       - name: Run options planner safety tests
         run: python -m unittest discover -s tests -p 'test_options_workflow.py' -v
       - name: Validate options intent without credentials or broker network calls
+        if: github.event_name == 'workflow_dispatch'
         env:
           ACTION: ${{ inputs.action }}
           MODE: ${{ inputs.mode }}
