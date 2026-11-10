@@ -21,15 +21,20 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
          *, approval='', collateral_verified=False, position_verified=False):
     if action not in ACTIONS or mode not in MODES:
         raise ValueError('Unknown options action or mode')
-    if not re.fullmatch(r'[A-Z][A-Z0-9.]{0,14}', symbol):
+    if not isinstance(symbol, str) or not re.fullmatch(r'[A-Z][A-Z0-9.]{0,14}', symbol):
         raise ValueError('Invalid underlying symbol')
     # Require an unambiguous ISO date; fromisoformat also accepts compact
     # forms that are easy to misread in a manual order workflow.
     if not isinstance(expiration, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', expiration):
         raise ValueError('Expiration must be YYYY-MM-DD')
+    # Accept only plain decimal strings. Decimal accepts scientific notation,
+    # whitespace, and Unicode digits that are ambiguous in manual order input.
+    for field, value in (('strike', strike), ('limit_price', limit_price)):
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]+(?:\\.[0-9]{1,2})?', value):
+            raise ValueError(field + ' must be a plain positive USD decimal')
     try:
         expiry = date.fromisoformat(expiration)
-        s, p = Decimal(str(strike)), Decimal(str(limit_price))
+        s, p = Decimal(strike), Decimal(limit_price)
     except (ValueError, InvalidOperation) as exc:
         raise ValueError('Invalid expiry, strike, or limit price') from exc
     if expiry < date.today() or not s.is_finite() or not p.is_finite():
