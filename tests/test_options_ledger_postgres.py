@@ -169,6 +169,23 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
         self.assertEqual([event[0] for event in events],
                          ['reserved', 'submission_unknown'])
 
+    def test_broker_id_link_without_status_change_is_audited(self):
+        intent = self.reserve()
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'submission_unknown' WHERE intent_id = %s",
+            (intent,))
+        broker_id = str(uuid.uuid4())
+        self.db.execute(
+            "UPDATE options_order_intents SET broker_order_id = %s WHERE intent_id = %s",
+            (broker_id, intent))
+        rows = self.db.execute(
+            """SELECT event_type, details FROM options_order_events
+               WHERE intent_id = %s ORDER BY event_id""", (intent,)).fetchall()
+        self.assertEqual([row[0] for row in rows],
+                         ['reserved', 'submission_unknown', 'reconciled'])
+        self.assertEqual(rows[-1][1]['broker_order_id'], broker_id)
+        self.assertEqual(rows[-1][1]['previous_status'], 'submission_unknown')
+
     def test_broker_order_id_cannot_be_reassigned_or_cleared(self):
         intent = self.reserve()
         broker_id = str(uuid.uuid4())
