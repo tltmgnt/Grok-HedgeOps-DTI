@@ -120,6 +120,30 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_database_rejects_confirmed_rows_without_broker_evidence(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-sql-guard'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            try:
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(
+                        """INSERT INTO paper_order_ledger
+                           (request_id, symbol, notional_usd, state)
+                           VALUES (%s, 'SPY', 25, 'BROKER_CONFIRMED')""",
+                        (rid,),
+                    )
+                conn.rollback()
+                row = conn.execute(
+                    'SELECT request_id FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,),
+                ).fetchone()
+                self.assertIsNone(row)
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_confirmation_requires_complete_broker_evidence(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
