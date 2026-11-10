@@ -25,6 +25,19 @@ class OptionsWorkflowTests(unittest.TestCase):
                     self.assertFalse(result['broker_order_submitted'])
                     self.assertEqual(result['estimated_premium_usd'], '250.00')
 
+    def test_contract_multiplier_is_explicitly_unverified(self):
+        for action, extra in (
+            ('buy_call', {}),
+            ('cash_secured_put', {'collateral_verified': True}),
+            ('covered_call', {'position_verified': True}),
+        ):
+            with self.subTest(action=action):
+                result = options(action, **extra)
+                self.assertEqual(result['assumed_contract_multiplier'], 100)
+                self.assertFalse(result['contract_terms_verified'])
+                self.assertIn('Adjusted', result['contract_warning'])
+                self.assertFalse(result['broker_order_submitted'])
+
     def test_long_options_premium_is_maximum_planned_loss(self):
         for action in ('buy_call', 'buy_put'):
             result = options(action, contracts=3, limit_price='1.25')
