@@ -44,7 +44,7 @@ def assess_snapshot(intent: dict, snapshot: dict) -> dict:
     if intent.get('broker_order_id') not in (None, order_id):
         raise ValueError('Broker order ID conflicts with ledger')
     state = snapshot.get('status')
-    if state not in KNOWN:
+    if not isinstance(state, str) or state not in KNOWN:
         return {'status': 'UNRESOLVED', 'reason': 'unrecognized broker status',
                 'database_write_authorized': False}
     # Even a terminal-looking snapshot cannot be written to the ledger here:
