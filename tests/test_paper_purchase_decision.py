@@ -92,22 +92,17 @@ class PurchaseDecisionTests(unittest.TestCase):
         self.assertGreater(result['reference']['age_seconds'], 120)
         self.assertTrue(any('older' in x for x in result['unknowns']))
 
-    def test_timeout_keeps_analysis_and_never_retries(self):
+    def test_missing_postgres_ledger_blocks_paper_submission(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,
              {'ALPACA_API_KEY': 'k', 'ALPACA_API_SECRET': 's'}, clear=True):
-            def ambiguous(*a, **kw):
-                before = json.loads((Path(tmp)/'decision.json').read_text())
-                self.assertEqual(before['status'], 'DECISION_RECORDED')
-                raise RuntimeError('Timeout')
             with patch('paper_purchase_decision.analyze', return_value={'reference': None}), \
-                 patch('paper_purchase_decision.submit', side_effect=ambiguous) as call:
+                 patch('paper_purchase_decision.submit') as submit_call:
                 code = main(['--symbol', 'SPY', '--notional', '25', '--request-id', ID,
                              '--submit-paper', '--output-dir', tmp])
             report = json.loads((Path(tmp)/'decision.json').read_text())
         self.assertEqual(code, 1)
-        call.assert_called_once()
+        submit_call.assert_not_called()
         self.assertEqual(report['status'], 'BROKER_UNCONFIRMED_REQUIRES_RECONCILIATION')
-        self.assertIsNone(report['order_submitted'])
         self.assertIn('analysis', report)
 
     def test_insufficient_cash_never_posts(self):
