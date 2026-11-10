@@ -50,18 +50,21 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
         return intent
 
     def test_public_has_no_ledger_or_audit_privileges(self):
+        # PUBLIC is a pseudo-role (grantee OID 0), not a login role.
         for relation in ('options_order_intents', 'options_order_events'):
-            for privilege in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'):
-                with self.subTest(relation=relation, privilege=privilege):
-                    granted = self.db.execute(
-                        """SELECT has_table_privilege('public',
-                                  %s::regclass, %s)""",
-                        (relation, privilege)).fetchone()[0]
-                    self.assertFalse(granted)
-        self.assertFalse(self.db.execute(
-            """SELECT has_sequence_privilege(
-                   'public', 'options_order_events_event_id_seq'::regclass,
-                   'USAGE')""").fetchone()[0])
+            with self.subTest(relation=relation):
+                public_grants = self.db.execute(
+                    """SELECT count(*) FROM pg_class c,
+                       LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+                       WHERE c.oid = %s::regclass AND acl.grantee = 0""",
+                    (relation,)).fetchone()[0]
+                self.assertEqual(public_grants, 0)
+        public_sequence_grants = self.db.execute(
+            """SELECT count(*) FROM pg_class c,
+               LATERAL aclexplode(coalesce(c.relacl, acldefault('S', c.relowner))) acl
+               WHERE c.oid = 'options_order_events_event_id_seq'::regclass
+                 AND acl.grantee = 0""").fetchone()[0]
+        self.assertEqual(public_sequence_grants, 0)
 
     def test_duplicate_client_order_id_rejected(self):
         client_id = str(uuid.uuid4())
