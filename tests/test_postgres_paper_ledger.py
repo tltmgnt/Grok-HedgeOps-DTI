@@ -182,6 +182,45 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_durable_reservation_survives_restart_without_second_post(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-durable-restart'
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path != '/v2/orders:by_client_order_id':
+                raise AssertionError('Restart attempted a broker POST')
+            self.assertEqual(params, {'client_order_id': rid})
+            return {'id': 'durable-restart-order', 'symbol': 'SPY',
+                    'side': 'buy', 'notional': '25',
+                    'client_order_id': rid, 'status': 'accepted'}
+
+        # Commit the reservation, close the connection, then recover using
+        # a new connection as a separate runner would after a crash.
+        with psycopg.connect(dsn) as first_conn:
+            first_conn.execute(DDL)
+            first_ledger = PostgresPaperLedger(first_conn)
+            with first_ledger.lock(rid):
+                self.assertTrue(first_ledger.reserve(rid, 'SPY', Decimal('25')))
+        with psycopg.connect(dsn) as second_conn:
+            second_ledger = PostgresPaperLedger(second_conn)
+            try:
+                result = submit_with_ledger(
+                    second_ledger, 'SPY', Decimal('25'), rid,
+                    key='k', secret='s', get=broker)
+                self.assertTrue(result['reconciled_existing_order'])
+                self.assertEqual(calls, ['/v2/orders:by_client_order_id'])
+                self.assertEqual(second_conn.execute(
+                    'SELECT state, broker_order_id FROM paper_order_ledger '
+                    'WHERE request_id=%s', (rid,)).fetchone(),
+                    ('BROKER_CONFIRMED', 'durable-restart-order'))
+            finally:
+                second_conn.rollback()
+                second_conn.execute(
+                    'DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_partial_fill_cannot_regress_to_prefill_status(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
