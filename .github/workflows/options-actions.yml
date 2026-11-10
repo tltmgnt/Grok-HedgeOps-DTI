@@ -5,11 +5,15 @@ on:
     paths:
       - 'options_workflow.py'
       - 'tests/test_options_workflow.py'
+      - 'tests/test_options_ledger_migration.py'
+      - 'migrations/20261110_options_intent_ledger.sql'
       - '.github/workflows/options-actions.yml'
   pull_request:
     paths:
       - 'options_workflow.py'
       - 'tests/test_options_workflow.py'
+      - 'tests/test_options_ledger_migration.py'
+      - 'migrations/20261110_options_intent_ledger.sql'
       - '.github/workflows/options-actions.yml'
   workflow_dispatch:
     inputs:
@@ -73,6 +77,8 @@ jobs:
           python-version: '3.12'
       - name: Run options planner safety tests
         run: python -m unittest discover -s tests -p 'test_options_workflow.py' -v
+      - name: Check options ledger migration safety invariants
+        run: python -m unittest discover -s tests -p 'test_options_ledger_migration.py' -v
       - name: Validate options intent without credentials or broker network calls
         if: github.event_name == 'workflow_dispatch'
         env:
