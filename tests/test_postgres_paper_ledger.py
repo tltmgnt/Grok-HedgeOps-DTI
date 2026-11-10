@@ -151,6 +151,28 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_confirmed_order_status_can_progress_without_changing_identity(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-progress'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='progress-order', broker_status='accepted')
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='progress-order', broker_status='filled')
+                row = conn.execute(
+                    'SELECT state, broker_order_id, broker_status FROM paper_order_ledger '
+                    'WHERE request_id=%s', (rid,)).fetchone()
+                self.assertEqual(row, ('BROKER_CONFIRMED', 'progress-order', 'filled'))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_unconfirmed_attempt_cannot_be_reset_to_reserved(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
