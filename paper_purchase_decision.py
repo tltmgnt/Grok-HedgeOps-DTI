@@ -234,7 +234,8 @@ def main(argv=None):
                         key=key, secret=secret, get=request_json))
             if report['status'] == 'BROKER_REJECTED_OR_TERMINATED':
                 code = 1
-        except (RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+        except Exception as exc:
+            # Database/driver failures also fail closed; never retry broker POST.
             report['status'] = ('BROKER_NOT_CONFIGURED' if not key or not secret
                                 else 'BROKER_UNCONFIRMED_REQUIRES_RECONCILIATION')
             report['order_submitted'] = False if not key or not secret else None  # Unknown on a timeout; never imply zero orders.
