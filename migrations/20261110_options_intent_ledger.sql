@@ -102,6 +102,12 @@ BEGIN
         VALUES (NEW.intent_id, NEW.status, jsonb_build_object(
             'previous_status', OLD.status,
             'broker_order_id', NEW.broker_order_id));
+    ELSIF NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id THEN
+        -- Linking a broker order without changing status must still be audited.
+        INSERT INTO options_order_events (intent_id, event_type, details)
+        VALUES (NEW.intent_id, 'reconciled', jsonb_build_object(
+            'previous_status', OLD.status,
+            'broker_order_id', NEW.broker_order_id));
     END IF;
     RETURN NEW;
 END;
