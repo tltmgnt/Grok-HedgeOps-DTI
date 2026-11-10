@@ -108,6 +108,29 @@ class LedgerRecoveryTests(unittest.TestCase):
         self.assertEqual(calls.count('/v2/orders'), 1)
         self.assertFalse(ledger.records[-1]['confirmed'])
 
+    def test_crash_after_durable_reservation_never_reposts(self):
+        # Simulate process death after committing intent but before broker POST.
+        # On restart the existing request ID must only be reconciled.
+        ledger = FakeLedger()
+        ledger.seen = True
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path == '/v2/orders:by_client_order_id':
+                return {'id': 'crash-recovered-order', 'symbol': 'SPY',
+                        'side': 'buy', 'notional': '25',
+                        'client_order_id': RID, 'status': 'accepted'}
+            self.fail('Restart must never send a new broker order: ' + path)
+
+        result = submit_with_ledger(
+            ledger, 'SPY', Decimal('25'), RID,
+            key='k', secret='s', get=broker)
+        self.assertTrue(result['reconciled_existing_order'])
+        self.assertEqual(calls, ['/v2/orders:by_client_order_id'])
+        self.assertEqual(ledger.records[-1]['broker_order_id'],
+                         'crash-recovered-order')
+
     def test_missing_after_crash_never_reposts(self):
         ledger = FakeLedger()
         ledger.seen = True
