@@ -80,8 +80,13 @@ class PostgresPaperLedger:
         state = 'BROKER_CONFIRMED' if confirmed else 'BROKER_UNCONFIRMED'
         with self.connection.cursor() as cur:
             cur.execute(
-                """UPDATE paper_order_ledger SET state=%s, broker_order_id=%s,
-                   broker_status=%s, updated_at=now() WHERE request_id=%s""",
+                """UPDATE paper_order_ledger
+                   SET state=CASE WHEN state='BROKER_CONFIRMED'
+                                  THEN state ELSE %s END,
+                       broker_order_id=COALESCE(%s, broker_order_id),
+                       broker_status=COALESCE(%s, broker_status),
+                       updated_at=now()
+                   WHERE request_id=%s""",
                 (state, broker_order_id, broker_status, request_id),
             )
             if cur.rowcount != 1:
