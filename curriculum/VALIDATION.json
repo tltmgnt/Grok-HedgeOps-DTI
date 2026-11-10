@@ -1,0 +1,21 @@
+{
+  "additional_checks": {
+    "dynamic_exec_removed_from_lab": true,
+    "validator_extraction": "Original constants and function moved unchanged to report_validation.py; agent re-exports their public names"
+  },
+  "case_count": 5,
+  "command": "python curriculum/lab.py --verify",
+  "exit_code": 0,
+  "expected_sha256": "f098c47e20f74a04577a1243aa02405df4b1ee70b2eb699cbfe3be5027a384eb",
+  "lab_sha256": "5a8bf1e9d459b661a9444fcdd54565288223231c79a89e2783372315a61e9c8f",
+  "python": "3.12.14",
+  "repository": "tltmgnt/Grok-HedgeOps-DTI",
+  "schema_version": 1,
+  "scope": "Local synthetic curriculum validation on the recorded source snapshot; not complete repository CI, learning outcomes, independent scientific reproduction or deployment approval",
+  "source_and_fixture_sha256": {
+    "agent.py": "586cc7c1d74dae01461988c16cf717ec8088f7943e3b65fa68c96294dcce0ade",
+    "report_validation.py": "648d8ee2f8d9b6300567fd4a8a95de2b15f904f1a32dc72921004529332b3763"
+  },
+  "source_base_commit": "3cc2c1edbb87b7d869882c769dc098657b09baa9",
+  "wrong_expectation_exit_code": 1
+}
