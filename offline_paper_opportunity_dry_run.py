@@ -33,7 +33,8 @@ def fixture_broker(*, cash="1000", orders=None, positions=None, clock_open=True)
             return {"is_open": clock_open}
         if path == "/v2/account":
             return {"status": "ACTIVE", "trading_blocked": False,
-                    "account_blocked": False, "cash": cash, "buying_power": cash}
+                    "account_blocked": False, "cash": cash, "buying_power": cash,
+                    "equity": "1000", "last_equity": "1000"}
         if path == "/v2/positions":
             return positions
         if path == "/v2/orders":
