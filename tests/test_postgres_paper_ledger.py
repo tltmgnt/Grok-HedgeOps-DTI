@@ -151,6 +151,36 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_direct_sql_cannot_rewrite_reserved_intent(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-intent'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                for field, value in (
+                    ('request_id', rid + '-new'),
+                    ('symbol', 'AAPL'),
+                    ('notional_usd', Decimal('26')),
+                ):
+                    with self.subTest(field=field):
+                        # Field names are fixed test literals, not user input.
+                        with self.assertRaises(psycopg.errors.CheckViolation):
+                            conn.execute(
+                                f'UPDATE paper_order_ledger SET {field}=%s WHERE request_id=%s',
+                                (value, rid))
+                        conn.rollback()
+                row = conn.execute(
+                    'SELECT request_id, symbol, notional_usd FROM paper_order_ledger '
+                    'WHERE request_id=%s', (rid,)).fetchone()
+                self.assertEqual(row, (rid, 'SPY', Decimal('25')))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_direct_sql_cannot_downgrade_confirmed_order(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
