@@ -100,6 +100,43 @@ class PostgresPaperLedger:
         self.connection.commit()
 
 
+
+def reconcile_with_ledger(ledger, symbol, amount, request_id, *, key, secret, get):
+    """Read-only broker reconciliation of a previously reserved request ID.
+
+    Never creates a reservation or issues a broker POST. A missing ledger row
+    is an error, not proof that an order was never sent.
+    """
+    from paper_opportunity_intelligence import PAPER
+    from paper_purchase_decision import acknowledgment
+
+    if not key or not secret:
+        raise ValueError('Paper credentials missing')
+    with ledger.lock(request_id):
+        with ledger.connection.cursor() as cur:
+            cur.execute(
+                'SELECT symbol, notional_usd FROM paper_order_ledger WHERE request_id=%s',
+                (request_id,),
+            )
+            row = cur.fetchone()
+        ledger.connection.rollback()
+        if row is None:
+            raise LedgerError('No durable reservation for request ID; cannot reconcile')
+        if row[0] != symbol or Decimal(str(row[1])) != amount:
+            raise LedgerError('Request ID already bound to a different order')
+        try:
+            order = get(PAPER, '/v2/orders:by_client_order_id', key, secret,
+                        params={'client_order_id': request_id})
+            result = acknowledgment(order, symbol, amount, request_id, existing=True)
+        except (RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+            ledger.record(request_id, confirmed=False)
+            raise LedgerError('Prior attempt unresolved; manual reconciliation required') from exc
+        ledger.record(request_id, confirmed=True,
+                      broker_order_id=result['broker_order_id'],
+                      broker_status=result['broker_status'])
+        return result
+
+
 def submit_with_ledger(ledger, symbol, amount, request_id, *, key, secret, get):
     """Use broker as source of truth; no second POST for existing ledger rows."""
     from paper_opportunity_intelligence import PAPER
