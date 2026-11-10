@@ -151,6 +151,46 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_timestamp_constraint_rejects_invalid_legacy_rows_on_migration(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-legacy-time'
+        # Exercise migration against a table created before the new constraint.
+        # Isolate this test in its own schema so it cannot alter other tests.
+        with psycopg.connect(dsn) as conn:
+            conn.execute('CREATE SCHEMA IF NOT EXISTS ledger_timestamp_migration_test')
+            conn.execute('SET search_path TO ledger_timestamp_migration_test')
+            try:
+                conn.execute('DROP TABLE IF EXISTS paper_order_ledger CASCADE')
+                conn.execute(
+                    """CREATE TABLE paper_order_ledger (
+                       request_id varchar(48) PRIMARY KEY,
+                       symbol varchar(15) NOT NULL,
+                       notional_usd numeric(12,2) NOT NULL,
+                       state text NOT NULL,
+                       broker_order_id text,
+                       broker_status text,
+                       created_at timestamptz NOT NULL,
+                       updated_at timestamptz NOT NULL
+                    )""")
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state, created_at, updated_at)
+                       VALUES (%s, 'SPY', 25, 'ATTEMPT_RESERVED',
+                               now(), now() - interval '1 day')""", (rid,))
+                conn.commit()
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(DDL)
+                conn.rollback()
+                row = conn.execute(
+                    'SELECT request_id FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()
+                self.assertEqual(row, (rid,))
+            finally:
+                conn.rollback()
+                conn.execute('DROP SCHEMA ledger_timestamp_migration_test CASCADE')
+                conn.commit()
+
     def test_database_rejects_inverted_timestamps_on_insert(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
