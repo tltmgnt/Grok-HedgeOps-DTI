@@ -96,6 +96,50 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
     }
 
 
+
+def verify_standard_contract(plan_result, contract):
+    """Cross-check broker-sourced contract metadata; never submit an order.
+
+    Only standard 100-share US equity options are supported. Missing or
+    conflicting metadata must not silently inherit the planner's assumption.
+    """
+    if not isinstance(plan_result, dict) or plan_result.get('status') != 'VALIDATED_PLAN_ONLY':
+        raise ValueError('Expected a validated options plan')
+    if not isinstance(contract, dict):
+        raise ValueError('Broker contract metadata required')
+    action = plan_result['action']
+    expected_type = 'call' if action in ('buy_call', 'sell_call', 'covered_call') else 'put'
+    if action not in ('buy_call', 'buy_put', 'sell_call', 'sell_put',
+                      'covered_call', 'cash_secured_put'):
+        raise ValueError('Unsupported contract action')
+    if (contract.get('underlying_symbol') != plan_result['symbol']
+            or contract.get('expiration_date') != plan_result['expiration']
+            or contract.get('type') != expected_type):
+        raise ValueError('Broker contract identity mismatch')
+    try:
+        strike = Decimal(str(contract['strike_price']))
+        multiplier = Decimal(str(contract['multiplier']))
+    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+        raise ValueError('Broker contract terms missing or invalid') from exc
+    if not strike.is_finite() or strike != Decimal(plan_result['strike']):
+        raise ValueError('Broker contract strike mismatch')
+    if not multiplier.is_finite() or multiplier != 100:
+        raise ValueError('Adjusted or nonstandard contract requires separate review')
+    if not isinstance(contract.get('symbol'), str) or not re.fullmatch(
+            r'[A-Z0-9 .]{10,32}', contract['symbol']):
+        raise ValueError('Broker option contract symbol missing or invalid')
+    # Verification is only as trustworthy as the supplied broker metadata.
+    # Do not mark it broker-verified without an authenticated source.
+    return {
+        'contract_symbol': contract['symbol'],
+        'contract_multiplier': 100,
+        'contract_matches_plan': True,
+        'broker_source_authenticated': False,
+        'broker_order_submitted': False,
+        'status': 'CONTRACT_MATCHED_OFFLINE_ONLY',
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     for field in ('action', 'mode', 'symbol', 'expiration', 'strike', 'limit_price'):
