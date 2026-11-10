@@ -7,13 +7,14 @@ must authenticate its broker session and bind the snapshot to that session.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
 FINAL = frozenset({'filled', 'cancelled', 'rejected'})
 KNOWN = frozenset({'new', 'accepted', 'partially_filled', 'filled',
                    'cancelled', 'rejected', 'pending_cancel'})
 
 
-def assess_snapshot(intent: dict, snapshot: dict) -> dict:
+def assess_snapshot(intent: dict, snapshot: dict, *, now: datetime | None = None) -> dict:
     """Return a proposed reconciliation, never an executable state change.
 
     Unknown/ambiguous broker responses remain unresolved. A missing order is
@@ -46,6 +47,27 @@ def assess_snapshot(intent: dict, snapshot: dict) -> dict:
     state = snapshot.get('status')
     if not isinstance(state, str) or state not in KNOWN:
         return {'status': 'UNRESOLVED', 'reason': 'unrecognized broker status',
+                'database_write_authorized': False}
+    # A snapshot without a timezone-aware broker observation time cannot
+    # establish freshness. Refuse future-dated and stale observations.
+    observed = snapshot.get('observed_at')
+    if not isinstance(observed, str):
+        return {'status': 'UNRESOLVED', 'reason': 'missing observation time',
+                'database_write_authorized': False}
+    try:
+        observed_at = datetime.fromisoformat(observed.replace('Z', '+00:00'))
+    except ValueError:
+        return {'status': 'UNRESOLVED', 'reason': 'invalid observation time',
+                'database_write_authorized': False}
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        return {'status': 'UNRESOLVED', 'reason': 'untrusted observation timezone',
+                'database_write_authorized': False}
+    clock = now if now is not None else datetime.now(timezone.utc)
+    if clock.tzinfo is None or clock.utcoffset() is None:
+        raise ValueError('Reference clock must be timezone aware')
+    age = clock - observed_at
+    if age < timedelta(seconds=-30) or age > timedelta(minutes=5):
+        return {'status': 'UNRESOLVED', 'reason': 'stale or future observation',
                 'database_write_authorized': False}
     # Even a terminal-looking snapshot cannot be written to the ledger here:
     # verified provenance, account ownership, freshness, and database role
