@@ -50,6 +50,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+      - name: Run options planner safety tests
+        run: python -m unittest discover -s tests -p 'test_options_workflow.py' -v
       - name: Validate options intent without credentials or broker network calls
         env:
           ACTION: ${{ inputs.action }}
