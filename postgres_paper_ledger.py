@@ -18,9 +18,34 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
         ('ATTEMPT_RESERVED','BROKER_UNCONFIRMED','BROKER_CONFIRMED')),
     broker_order_id text,
     broker_status text,
+    CONSTRAINT paper_order_ledger_confirmed_evidence CHECK (
+        state <> 'BROKER_CONFIRMED' OR (
+            broker_order_id IS NOT NULL AND length(btrim(broker_order_id)) > 0
+            AND broker_status IS NOT NULL AND length(btrim(broker_status)) > 0
+        )
+    ),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- CREATE TABLE IF NOT EXISTS does not upgrade older tables. Enforce the
+-- invariant for pre-existing deployments as well; invalid historical rows
+-- cause startup to fail closed until an operator reconciles them.
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'paper_order_ledger'::regclass
+          AND conname = 'paper_order_ledger_confirmed_evidence'
+    ) THEN
+        ALTER TABLE paper_order_ledger
+        ADD CONSTRAINT paper_order_ledger_confirmed_evidence CHECK (
+            state <> 'BROKER_CONFIRMED' OR (
+                broker_order_id IS NOT NULL AND length(btrim(broker_order_id)) > 0
+                AND broker_status IS NOT NULL AND length(btrim(broker_status)) > 0
+            )
+        );
+    END IF;
+END $;
 CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
     ON paper_order_ledger (broker_order_id)
     WHERE broker_order_id IS NOT NULL;
