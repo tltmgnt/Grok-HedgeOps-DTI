@@ -156,6 +156,15 @@ class OptionsWorkflowTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     options(limit_price=value)
 
+    def test_expiration_horizon_rejects_century_alias_and_distant_dates(self):
+        today = date.today()
+        for expiry in (today.replace(year=today.year + 100).isoformat(),
+                       today.replace(year=today.year + 6).isoformat()):
+            with self.subTest(expiry=expiry):
+                with self.assertRaisesRegex(ValueError, 'five-year'):
+                    options(expiration=expiry)
+        self.assertEqual(options(expiration=EXPIRY)['expiration'], EXPIRY)
+
     def test_ambiguous_expiration_formats_fail_closed(self):
         for expiry in ('20300101', '2030-1-01', '2030-01-1', '2030-W01-1'):
             with self.subTest(expiry=expiry):
