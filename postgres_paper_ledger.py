@@ -144,6 +144,18 @@ class PostgresPaperLedger:
 
     def reserve(self, request_id, symbol, amount):
         """Return True only for a newly committed intent; never reset old rows."""
+        # Reject invalid intent before touching the durable ledger. In
+        # particular, PostgreSQL numeric(12,2) would silently round amounts
+        # with excess fractional precision.
+        if (not isinstance(request_id, str) or not request_id
+                or len(request_id) > 48
+                or not isinstance(symbol, str) or not symbol
+                or len(symbol) > 15):
+            raise LedgerError('Invalid paper order request ID or symbol')
+        if (not isinstance(amount, Decimal) or not amount.is_finite()
+                or amount <= 0 or amount.as_tuple().exponent < -2
+                or amount > Decimal('9999999999.99')):
+            raise LedgerError('Invalid paper order notional precision or range')
         with self.connection.cursor() as cur:
             cur.execute(
                 """INSERT INTO paper_order_ledger
