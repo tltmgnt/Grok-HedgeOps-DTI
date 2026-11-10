@@ -95,6 +95,16 @@ Implemented components now include structured-output checks, evidence records, t
 
 Apache-2.0. See [LICENSE](LICENSE).
 
+## Investment horizons
+
+[Investment horizon research and paper entries](docs/INVESTMENT_HORIZONS.md)
+adds separate 1–2 year and 5+ year watchlists, scenario valuation, dated financial
+review gates and an optional $10 paper limit entry. The shipped workbook EPS
+inputs are illustrative and cannot release an order. Scheduled runs are read-only;
+manual paper entry requires explicit enable settings. Long-horizon lots are
+excluded from the momentum strategy's five-day exits and require periodic human
+review. Live trading permissions are unchanged.
+
 ## Autonomous paper sessions
 
 See [the paper experiment runbook](docs/AUTONOMOUS_PAPER_SESSIONS.md) for

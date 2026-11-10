@@ -1,0 +1,121 @@
+{
+  "version": "investment-horizons-v1",
+  "candidates": [
+    {
+      "symbol": "MSFT",
+      "starting_eps": "19.56",
+      "eps_basis": "illustrative_quarter_annualized",
+      "baseline_note": "Workbook teaching input; replace with reconciled annual EPS before execution.",
+      "review": {
+        "reviewed_at": null,
+        "financials_as_of": "2026-09-30T00:00:00Z",
+        "sources": [
+          "https://www.microsoft.com/en-us/investor/earnings/fy-2027-q1/press-release-webcast"
+        ],
+        "annual_earnings_reconciled": false,
+        "cash_flow_reviewed": false,
+        "debt_reviewed": false,
+        "dilution_reviewed": false,
+        "thesis_intact": false
+      },
+      "horizons": {
+        "1-2y": {
+          "entry_zone": [
+            480,
+            520
+          ],
+          "required_return": ".12",
+          "bear": {
+            "growth": "0",
+            "pe": 20
+          },
+          "base": {
+            "growth": ".12",
+            "pe": 27
+          },
+          "bull": {
+            "growth": ".16",
+            "pe": 32
+          }
+        },
+        "5y": {
+          "entry_zone": [
+            450,
+            485
+          ],
+          "required_return": ".12",
+          "bear": {
+            "growth": "0",
+            "pe": 18
+          },
+          "base": {
+            "growth": ".12",
+            "pe": 25
+          },
+          "bull": {
+            "growth": ".16",
+            "pe": 30
+          }
+        }
+      }
+    },
+    {
+      "symbol": "GOOGL",
+      "starting_eps": "8.48",
+      "eps_basis": "illustrative_quarter_annualized",
+      "baseline_note": "Workbook teaching input; replace with reconciled annual EPS before execution.",
+      "review": {
+        "reviewed_at": null,
+        "financials_as_of": "2026-09-30T00:00:00Z",
+        "sources": [
+          "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000080/googexhibit991q32026.htm"
+        ],
+        "annual_earnings_reconciled": false,
+        "cash_flow_reviewed": false,
+        "debt_reviewed": false,
+        "dilution_reviewed": false,
+        "thesis_intact": false
+      },
+      "horizons": {
+        "1-2y": {
+          "entry_zone": [
+            175,
+            195
+          ],
+          "required_return": ".12",
+          "bear": {
+            "growth": "0",
+            "pe": 18
+          },
+          "base": {
+            "growth": ".10",
+            "pe": 24
+          },
+          "bull": {
+            "growth": ".15",
+            "pe": 28
+          }
+        },
+        "5y": {
+          "entry_zone": [
+            160,
+            170
+          ],
+          "required_return": ".12",
+          "bear": {
+            "growth": "0",
+            "pe": 16
+          },
+          "base": {
+            "growth": ".10",
+            "pe": 22
+          },
+          "bull": {
+            "growth": ".15",
+            "pe": 28
+          }
+        }
+      }
+    }
+  ]
+}
