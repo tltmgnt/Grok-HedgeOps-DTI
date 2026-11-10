@@ -27,10 +27,11 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
     # forms that are easy to misread in a manual order workflow.
     if not isinstance(expiration, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', expiration):
         raise ValueError('Expiration must be YYYY-MM-DD')
-    # Accept only plain decimal strings. Decimal accepts scientific notation,
-    # whitespace, and Unicode digits that are ambiguous in manual order input.
+    # Accept only bounded plain decimal strings before Decimal conversion.
+    # Unbounded digit strings can exhaust CPU/memory even when later rejected
+    # by the numeric exposure cap; notation and Unicode are ambiguous too.
     for field, value in (('strike', strike), ('limit_price', limit_price)):
-        if not isinstance(value, str) or not re.fullmatch(r'[0-9]+(?:\.[0-9]{1,2})?', value):
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]{1,7}(?:\.[0-9]{1,2})?', value):
             raise ValueError(field + ' must be a plain positive USD decimal')
     try:
         expiry = date.fromisoformat(expiration)
