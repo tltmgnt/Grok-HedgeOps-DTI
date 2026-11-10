@@ -208,6 +208,21 @@ class OptionsWorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'planner safety bound'):
                     options(**{field: '1000000.01'})
 
+    def test_manual_price_inputs_require_plain_ascii_decimals(self):
+        for field in ('strike', 'limit_price'):
+            for value in ('1e2', ' 2.50', '+2.50', '٢.٥', '2.500', 2.5, None):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaises(ValueError):
+                        options(**{field: value})
+        self.assertEqual(options(strike='500.00', limit_price='2.50')['estimated_premium_usd'],
+                         '250.00')
+
+    def test_non_string_underlying_fails_closed(self):
+        for symbol in (None, 123, ['SPY']):
+            with self.subTest(symbol=symbol):
+                with self.assertRaisesRegex(ValueError, 'Invalid underlying symbol'):
+                    options(symbol=symbol)
+
     def test_invalid_contracts_and_symbols_fail_closed(self):
         for count in (0, -1, 101, True, 1.5):
             with self.subTest(count=count):
