@@ -69,6 +69,37 @@ class LedgerRecoveryTests(unittest.TestCase):
         self.assertEqual(calls.count('/v2/orders'), 1)
         self.assertTrue(ledger.records[-1]['confirmed'])
 
+    def test_ambiguous_post_acknowledgment_never_reposts(self):
+        ledger = FakeLedger()
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path == '/v2/orders:by_client_order_id':
+                if calls.count(path) == 1:
+                    raise RuntimeError('Alpaca HTTP 404')
+                raise RuntimeError('Alpaca HTTP 404')
+            if path == '/v2/account':
+                return {'status': 'ACTIVE', 'trading_blocked': False,
+                        'account_blocked': False, 'cash': '100', 'buying_power': '100'}
+            if path == '/v2/assets/SPY':
+                return {'status': 'active', 'tradable': True, 'fractionable': True}
+            if path == '/v2/orders':
+                # A successful HTTP response with malformed evidence is still
+                # ambiguous: the broker may have accepted the order.
+                return {'id': 'broker-123', 'symbol': 'AAPL', 'side': 'buy',
+                        'notional': '25', 'client_order_id': RID, 'status': 'accepted'}
+            self.fail(path)
+
+        with self.assertRaisesRegex(RuntimeError, 'Ambiguous broker acknowledgment'):
+            submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
+                               key='k', secret='s', get=broker)
+        with self.assertRaisesRegex(LedgerError, 'manual reconciliation'):
+            submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
+                               key='k', secret='s', get=broker)
+        self.assertEqual(calls.count('/v2/orders'), 1)
+        self.assertFalse(ledger.records[-1]['confirmed'])
+
     def test_missing_after_crash_never_reposts(self):
         ledger = FakeLedger()
         ledger.seen = True
