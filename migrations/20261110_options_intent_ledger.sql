@@ -85,6 +85,30 @@ CREATE TRIGGER options_intent_immutable
     BEFORE UPDATE OR DELETE ON options_order_intents
     FOR EACH ROW EXECUTE FUNCTION options_intent_guard();
 
+-- Write an audit record in the same transaction as every reservation or
+-- status transition. A failed audit insert rolls back the state change.
+CREATE OR REPLACE FUNCTION options_intent_audit()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO options_order_events (intent_id, event_type, details)
+        VALUES (NEW.intent_id, 'reserved', jsonb_build_object(
+            'client_order_id', NEW.client_order_id,
+            'environment', NEW.environment));
+    ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+        INSERT INTO options_order_events (intent_id, event_type, details)
+        VALUES (NEW.intent_id, NEW.status, jsonb_build_object(
+            'previous_status', OLD.status,
+            'broker_order_id', NEW.broker_order_id));
+    END IF;
+    RETURN NEW;
+END;
+$;
+DROP TRIGGER IF EXISTS options_intent_audit_trigger ON options_order_intents;
+CREATE TRIGGER options_intent_audit_trigger
+    AFTER INSERT OR UPDATE ON options_order_intents
+    FOR EACH ROW EXECUTE FUNCTION options_intent_audit();
+
 -- Fail closed: no runtime access granted here. A separately reviewed,
 -- least-privilege DB role and authenticated broker reconciliation are required
 -- before any options order can be submitted. Never retry an ambiguous POST.
