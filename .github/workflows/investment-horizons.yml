@@ -1,0 +1,70 @@
+name: Investment Horizon Research and Paper Entries
+on:
+  workflow_dispatch:
+    inputs:
+      paper_entry:
+        description: 'Request one paper limit entry after all research and account gates'
+        type: boolean
+        default: false
+      horizon:
+        description: 'Holding period for the optional paper entry'
+        type: choice
+        options: ['1-2y', '5y']
+        default: '1-2y'
+  schedule:
+    # During regular US hours at either DST offset. May be delayed or skipped.
+    - cron: '35 19 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  # Serialize against the existing automated paper session's account checks.
+  group: paper-opportunity-auto-trader
+  cancel-in-progress: false
+jobs:
+  research:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: paper-trading
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Test investment gates without broker access
+        run: python -m unittest discover -s tests -p 'test_investment*.py' -v
+      - name: Evaluate both horizons and optional paper entry
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
+          PAPER_DATA_FEED: ${{ vars.PAPER_DATA_FEED || 'iex' }}
+          INVESTMENT_PAPER_ENABLED: ${{ vars.INVESTMENT_PAPER_ENABLED || 'false' }}
+          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'false' }}
+          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'true' }}
+          PAPER_ALLOCATION_MODE: legacy
+          REQUEST_PAPER_ENTRY: ${{ inputs.paper_entry || false }}
+          ENTRY_HORIZON: ${{ inputs.horizon || '1-2y' }}
+        run: |
+          if [ "$REQUEST_PAPER_ENTRY" = true ]; then
+            python investment_research.py --paper-entry --horizon "$ENTRY_HORIZON"
+          else
+            python investment_research.py
+          fi
+      - name: Publish research and configuration status
+        if: always()
+        run: |
+          if [ -f investment-output/summary.md ]; then
+            cat investment-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Research did not complete; no execution readiness established.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve research evidence and pre-submission intent
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: investment-horizons-${{ github.run_id }}-${{ github.run_attempt }}
+          path: investment-output/
+          retention-days: 90
+          if-no-files-found: warn
