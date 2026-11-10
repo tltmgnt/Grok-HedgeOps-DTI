@@ -221,7 +221,17 @@ def main(argv=None):
                                      params={'client_order_id': args.request_id})
                 report.update(acknowledgment(order, args.symbol, amount, args.request_id, existing=True))
             else:
-                report.update(submit(args.symbol, amount, args.request_id, key=key, secret=secret))
+                # No paper broker POST without durable cross-run coordination.
+                database_url = os.getenv('PAPER_LEDGER_DATABASE_URL', '')
+                if not database_url:
+                    raise RuntimeError('PostgreSQL paper ledger is required for broker submission')
+                import psycopg
+                from postgres_paper_ledger import PostgresPaperLedger, submit_with_ledger
+                with psycopg.connect(database_url, connect_timeout=10,
+                                     sslmode='require', autocommit=False) as conn:
+                    report.update(submit_with_ledger(
+                        PostgresPaperLedger(conn), args.symbol, amount, args.request_id,
+                        key=key, secret=secret, get=request_json))
             if report['status'] == 'BROKER_REJECTED_OR_TERMINATED':
                 code = 1
         except (RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
