@@ -29,17 +29,31 @@ class OptionsWorkflowTests(unittest.TestCase):
         p = options('buy_call')
         contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
                     'type': 'call', 'strike_price': '500.00',
-                    'multiplier': '100', 'symbol': 'SPY   270101C00500000'}
+                    'multiplier': '100', 'symbol': 'SPY   ' + EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10] + 'C00500000'}
         result = verify_standard_contract(p, contract)
         self.assertTrue(result['contract_matches_plan'])
         self.assertFalse(result['broker_source_authenticated'])
         self.assertFalse(result['broker_order_submitted'])
 
+    def test_option_symbol_must_match_metadata_and_plan(self):
+        p = options('buy_call')
+        yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
+        base = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                'type': 'call', 'strike_price': '500.00', 'multiplier': '100'}
+        for symbol in ('AAPL  ' + yymmdd + 'C00500000',
+                       'SPY   270101C00500000' if yymmdd != '270101'
+                       else 'SPY   280101C00500000',
+                       'SPY   ' + yymmdd + 'P00500000',
+                       'SPY   ' + yymmdd + 'C00501000'):
+            with self.subTest(symbol=symbol):
+                with self.assertRaisesRegex(ValueError, 'conflicts'):
+                    verify_standard_contract(p, {**base, 'symbol': symbol})
+
     def test_contract_metadata_mismatch_or_adjustment_fails_closed(self):
         p = options('buy_put')
         contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
                     'type': 'put', 'strike_price': '500.00',
-                    'multiplier': '100', 'symbol': 'SPY   270101P00500000'}
+                    'multiplier': '100', 'symbol': 'SPY   ' + EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10] + 'P00500000'}
         for field, invalid in (
             ('underlying_symbol', 'AAPL'), ('expiration_date', '2030-01-01'),
             ('type', 'call'), ('strike_price', '501.00'),
