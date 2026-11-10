@@ -159,6 +159,44 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_partial_fill_cannot_regress_to_prefill_status(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-partial-fill'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='partial-fill-order',
+                                  broker_status='accepted')
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='partial-fill-order',
+                                  broker_status='partially_filled')
+                    for stale in ('new', 'accepted', 'pending_new',
+                                  'accepted_for_bidding'):
+                        with self.subTest(stale=stale):
+                            with self.assertRaises(psycopg.errors.CheckViolation):
+                                ledger.record(rid, confirmed=True,
+                                              broker_order_id='partial-fill-order',
+                                              broker_status=stale)
+                            conn.rollback()
+                            self.assertEqual(conn.execute(
+                                'SELECT broker_status FROM paper_order_ledger '
+                                'WHERE request_id=%s', (rid,)).fetchone(),
+                                ('partially_filled',))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='partial-fill-order',
+                                  broker_status='filled')
+                    self.assertEqual(conn.execute(
+                        'SELECT broker_status FROM paper_order_ledger '
+                        'WHERE request_id=%s', (rid,)).fetchone(), ('filled',))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_legacy_duplicate_broker_identity_blocks_unique_index_migration(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
