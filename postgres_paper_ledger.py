@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
+    ON paper_order_ledger (broker_order_id)
+    WHERE broker_order_id IS NOT NULL;
 """
 
 
