@@ -102,7 +102,7 @@ def submit_with_ledger(ledger, symbol, amount, request_id, *, key, secret, get):
                 raise LedgerError('Prior attempt unresolved; manual reconciliation required') from exc
         else:
             try:
-                result = submit(symbol, amount, request_id, key=key, secret, get=get)
+                result = submit(symbol, amount, request_id, key=key, secret=secret, get=get)
             except (RuntimeError, ValueError, KeyError, TypeError, OSError):
                 ledger.record(request_id, confirmed=False)
                 raise
