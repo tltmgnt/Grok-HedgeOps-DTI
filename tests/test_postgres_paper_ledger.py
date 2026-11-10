@@ -151,6 +151,31 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_filled_status_cannot_regress_on_stale_reconciliation(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-filled'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=True,
+                                  broker_order_id='filled-order', broker_status='filled')
+                    with self.assertRaises(psycopg.errors.CheckViolation):
+                        ledger.record(rid, confirmed=True,
+                                      broker_order_id='filled-order', broker_status='accepted')
+                    # The rejected update must not change the durable evidence.
+                    row = conn.execute(
+                        'SELECT state, broker_order_id, broker_status '
+                        'FROM paper_order_ledger WHERE request_id=%s',
+                        (rid,)).fetchone()
+                    self.assertEqual(row, ('BROKER_CONFIRMED', 'filled-order', 'filled'))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_confirmed_order_status_can_progress_without_changing_identity(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
