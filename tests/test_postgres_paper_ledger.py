@@ -159,6 +159,48 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_legacy_duplicate_broker_identity_blocks_unique_index_migration(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        with psycopg.connect(dsn) as conn:
+            conn.execute('CREATE SCHEMA IF NOT EXISTS ledger_duplicate_broker_migration_test')
+            conn.execute('SET search_path TO ledger_duplicate_broker_migration_test')
+            try:
+                conn.execute('DROP TABLE IF EXISTS paper_order_ledger CASCADE')
+                conn.execute(
+                    """CREATE TABLE paper_order_ledger (
+                       request_id varchar(48) PRIMARY KEY,
+                       symbol varchar(15) NOT NULL,
+                       notional_usd numeric(12,2) NOT NULL,
+                       state text NOT NULL,
+                       broker_order_id text,
+                       broker_status text,
+                       created_at timestamptz NOT NULL DEFAULT now(),
+                       updated_at timestamptz NOT NULL DEFAULT now()
+                    )""")
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state,
+                        broker_order_id, broker_status)
+                       VALUES ('legacy-duplicate-one', 'SPY', 25,
+                               'BROKER_CONFIRMED', 'shared-broker-order', 'accepted'),
+                              ('legacy-duplicate-two', 'SPY', 25,
+                               'BROKER_CONFIRMED', 'shared-broker-order', 'accepted')""")
+                conn.commit()
+                with self.assertRaises(psycopg.errors.UniqueViolation):
+                    conn.execute(DDL)
+                conn.rollback()
+                rows = conn.execute(
+                    """SELECT request_id FROM paper_order_ledger
+                       WHERE broker_order_id='shared-broker-order'
+                       ORDER BY request_id""").fetchall()
+                self.assertEqual(rows, [('legacy-duplicate-one',),
+                                        ('legacy-duplicate-two',)])
+            finally:
+                conn.rollback()
+                conn.execute('DROP SCHEMA ledger_duplicate_broker_migration_test CASCADE')
+                conn.commit()
+
     def test_legacy_unconfirmed_broker_evidence_blocks_migration(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
