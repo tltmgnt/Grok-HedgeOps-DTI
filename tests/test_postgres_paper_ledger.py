@@ -143,6 +143,7 @@ class PostgresConcurrencyTests(unittest.TestCase):
                        updated_at timestamptz DEFAULT now())""")
                 conn.execute(DDL)
                 conn.execute(DDL)  # Migration must be idempotent.
+                conn.commit()  # Keep the disposable schema after the expected rollback.
                 with self.assertRaises(psycopg.errors.CheckViolation):
                     conn.execute(
                         """INSERT INTO paper_order_ledger
