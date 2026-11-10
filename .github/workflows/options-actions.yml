@@ -1,0 +1,73 @@
+name: Options Actions (Plan Only)
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Options action
+        required: true
+        type: choice
+        options: [buy_call, buy_put, sell_call, sell_put, covered_call, cash_secured_put, close, roll, reconcile]
+      mode:
+        description: Target mode (all modes validate only; no broker submission)
+        required: true
+        type: choice
+        options: [simulate, paper, live]
+        default: simulate
+      symbol:
+        description: Uppercase underlying symbol
+        required: true
+        type: string
+      expiration:
+        description: Expiration YYYY-MM-DD
+        required: true
+        type: string
+      strike:
+        description: Strike USD
+        required: true
+        type: string
+      contracts:
+        description: Contract count
+        required: true
+        type: string
+      limit_price:
+        description: Limit premium per share USD
+        required: true
+        type: string
+      approval:
+        description: For live planning enter I_APPROVE_LIVE_OPTIONS (never submits)
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  validate-options-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Validate options intent without credentials or broker network calls
+        env:
+          ACTION: ${{ inputs.action }}
+          MODE: ${{ inputs.mode }}
+          SYMBOL: ${{ inputs.symbol }}
+          EXPIRATION: ${{ inputs.expiration }}
+          STRIKE: ${{ inputs.strike }}
+          CONTRACTS: ${{ inputs.contracts }}
+          LIMIT_PRICE: ${{ inputs.limit_price }}
+          APPROVAL: ${{ inputs.approval }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from options_workflow import plan
+          result = plan(
+              os.environ['ACTION'], os.environ['MODE'],
+              os.environ['SYMBOL'], os.environ['EXPIRATION'],
+              os.environ['STRIKE'], int(os.environ['CONTRACTS']),
+              os.environ['LIMIT_PRICE'], approval=os.environ['APPROVAL'])
+          print(json.dumps(result, indent=2))
+          PY
