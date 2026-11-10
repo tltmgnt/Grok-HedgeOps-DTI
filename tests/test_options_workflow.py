@@ -208,6 +208,15 @@ class OptionsWorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'planner safety bound'):
                     options(**{field: '1000000.01'})
 
+    def test_oversized_numeric_text_rejected_before_decimal_conversion(self):
+        for field in ('strike', 'limit_price'):
+            for value in ('9' * 10000, '0' * 10000, '10000000', '00000000.01'):
+                with self.subTest(field=field, length=len(value)):
+                    with self.assertRaisesRegex(ValueError, 'plain positive USD decimal'):
+                        options(**{field: value})
+        self.assertEqual(options(strike='1000000', limit_price='0.01')['strike'],
+                         '1000000')
+
     def test_manual_price_inputs_require_plain_ascii_decimals(self):
         for field in ('strike', 'limit_price'):
             for value in ('1e2', ' 2.50', '+2.50', '٢.٥', '2.500', 2.5, None):
