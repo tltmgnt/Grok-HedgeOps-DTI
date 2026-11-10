@@ -105,6 +105,24 @@ def verify_standard_contract(plan_result, contract):
     """
     if not isinstance(plan_result, dict) or plan_result.get('status') != 'VALIDATED_PLAN_ONLY':
         raise ValueError('Expected a validated options plan')
+    # A caller-supplied dict is not evidence of a validated order. Reject
+    # tampered plans before comparing contract metadata.
+    expected = plan(
+        plan_result.get('action'), plan_result.get('mode'),
+        plan_result.get('symbol'), plan_result.get('expiration'),
+        plan_result.get('strike'), plan_result.get('contracts'),
+        plan_result.get('limit_price'),
+        approval=('I_APPROVE_LIVE_OPTIONS'
+                  if plan_result.get('mode') == 'live' else ''),
+        collateral_verified=True, position_verified=True,
+    )
+    if any(plan_result.get(field) != expected[field] for field in (
+            'action', 'mode', 'symbol', 'expiration', 'strike', 'contracts',
+            'limit_price', 'estimated_premium_usd', 'estimated_max_loss_usd',
+            'cash_secured_put_collateral_usd', 'covered_call_shares_required',
+            'assumed_contract_multiplier', 'risk_estimates_are_broker_verified',
+            'contract_terms_verified', 'broker_order_submitted')):
+        raise ValueError('Options plan fields are inconsistent or tampered')
     if not isinstance(contract, dict):
         raise ValueError('Broker contract metadata required')
     action = plan_result['action']
