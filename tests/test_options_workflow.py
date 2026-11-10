@@ -35,6 +35,26 @@ class OptionsWorkflowTests(unittest.TestCase):
         self.assertFalse(result['broker_source_authenticated'])
         self.assertFalse(result['broker_order_submitted'])
 
+    def test_contract_verification_rejects_tampered_plan_fields(self):
+        p = options('buy_call')
+        yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
+        contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                    'type': 'call', 'strike_price': '500.00',
+                    'multiplier': '100', 'symbol': 'SPY   ' + yymmdd + 'C00500000'}
+        for field, value in (
+            ('contracts', 99), ('limit_price', '0.01'),
+            ('estimated_premium_usd', '0.01'),
+            ('estimated_max_loss_usd', '0.01'),
+            ('assumed_contract_multiplier', 1),
+            ('risk_estimates_are_broker_verified', True),
+            ('contract_terms_verified', True),
+            ('broker_order_submitted', True),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, 'tampered'):
+                    verify_standard_contract({**p, field: value}, contract)
+        self.assertTrue(verify_standard_contract(p, contract)['contract_matches_plan'])
+
     def test_option_symbol_must_match_metadata_and_plan(self):
         p = options('buy_call')
         yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
