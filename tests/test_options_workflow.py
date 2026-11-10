@@ -25,6 +25,27 @@ class OptionsWorkflowTests(unittest.TestCase):
                     self.assertFalse(result['broker_order_submitted'])
                     self.assertEqual(result['estimated_premium_usd'], '250.00')
 
+    def test_long_options_premium_is_maximum_planned_loss(self):
+        for action in ('buy_call', 'buy_put'):
+            result = options(action, contracts=3, limit_price='1.25')
+            self.assertEqual(result['estimated_premium_usd'], '375.00')
+            self.assertEqual(result['estimated_max_loss_usd'], '375.00')
+            self.assertFalse(result['risk_estimates_are_broker_verified'])
+
+    def test_short_put_displays_gross_assignment_collateral(self):
+        result = options('cash_secured_put', contracts=2, strike='500.00',
+                         limit_price='2.50', collateral_verified=True)
+        self.assertEqual(result['estimated_premium_usd'], '500.00')
+        self.assertEqual(result['cash_secured_put_collateral_usd'], '100000.00')
+        self.assertEqual(result['estimated_max_loss_usd'], '100000.00')
+        self.assertFalse(result['broker_order_submitted'])
+
+    def test_covered_call_displays_share_requirement_without_false_loss_cap(self):
+        result = options('covered_call', contracts=2, position_verified=True)
+        self.assertEqual(result['covered_call_shares_required'], 200)
+        self.assertIsNone(result['estimated_max_loss_usd'])
+        self.assertFalse(result['risk_estimates_are_broker_verified'])
+
     def test_live_requires_explicit_approval_phrase(self):
         for approval in ('', 'yes', 'I_APPROVE_PAPER_OPTIONS'):
             with self.subTest(approval=approval):
