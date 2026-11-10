@@ -44,6 +44,16 @@ on:
         description: Limit premium per share USD
         required: true
         type: string
+      collateral_verified:
+        description: Operator attests cash collateral checked (planning only; not broker verified)
+        required: false
+        type: boolean
+        default: false
+      position_verified:
+        description: Operator attests covered shares checked (planning only; not broker verified)
+        required: false
+        type: boolean
+        default: false
       approval:
         description: For live planning enter I_APPROVE_LIVE_OPTIONS (never submits)
         required: false
@@ -74,6 +84,8 @@ jobs:
           CONTRACTS: ${{ inputs.contracts }}
           LIMIT_PRICE: ${{ inputs.limit_price }}
           APPROVAL: ${{ inputs.approval }}
+          COLLATERAL_VERIFIED: ${{ inputs.collateral_verified }}
+          POSITION_VERIFIED: ${{ inputs.position_verified }}
         run: |
           python - <<'PY'
           import json, os
@@ -82,6 +94,8 @@ jobs:
               os.environ['ACTION'], os.environ['MODE'],
               os.environ['SYMBOL'], os.environ['EXPIRATION'],
               os.environ['STRIKE'], int(os.environ['CONTRACTS']),
-              os.environ['LIMIT_PRICE'], approval=os.environ['APPROVAL'])
+              os.environ['LIMIT_PRICE'], approval=os.environ['APPROVAL'],
+              collateral_verified=os.environ['COLLATERAL_VERIFIED'] == 'true',
+              position_verified=os.environ['POSITION_VERIFIED'] == 'true')
           print(json.dumps(result, indent=2))
           PY
