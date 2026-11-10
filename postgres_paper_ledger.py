@@ -13,7 +13,7 @@ DDL = """
 CREATE TABLE IF NOT EXISTS paper_order_ledger (
     request_id varchar(48) PRIMARY KEY,
     symbol varchar(15) NOT NULL,
-    notional_usd numeric(12,2) NOT NULL CHECK (notional_usd > 0),
+    notional_usd numeric(12,2) NOT NULL CHECK (notional_usd > 0 AND notional_usd <> 'NaN'::numeric),
     state text NOT NULL CHECK (state IN
         ('ATTEMPT_RESERVED','BROKER_UNCONFIRMED','BROKER_CONFIRMED')),
     broker_order_id text,
@@ -50,6 +50,20 @@ BEGIN
         );
     END IF;
 END $$;
+-- PostgreSQL sorts numeric NaN above ordinary numbers, so a plain > 0
+-- check can accept NaN. Upgrade existing tables and reject corrupt rows.
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'paper_order_ledger'::regclass
+          AND conname = 'paper_order_ledger_notional_finite'
+    ) THEN
+        ALTER TABLE paper_order_ledger
+        ADD CONSTRAINT paper_order_ledger_notional_finite
+        CHECK (notional_usd > 0 AND notional_usd <> 'NaN'::numeric);
+    END IF;
+END $;
 -- Protect confirmed evidence against direct SQL updates and other writers.
 CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
