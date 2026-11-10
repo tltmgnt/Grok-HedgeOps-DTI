@@ -159,6 +159,44 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_legacy_nan_notional_blocks_migration(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        with psycopg.connect(dsn) as conn:
+            conn.execute('CREATE SCHEMA IF NOT EXISTS ledger_nan_migration_test')
+            conn.execute('SET search_path TO ledger_nan_migration_test')
+            try:
+                conn.execute('DROP TABLE IF EXISTS paper_order_ledger CASCADE')
+                conn.execute(
+                    """CREATE TABLE paper_order_ledger (
+                       request_id varchar(48) PRIMARY KEY,
+                       symbol varchar(15) NOT NULL,
+                       notional_usd numeric(12,2) NOT NULL CHECK (notional_usd > 0),
+                       state text NOT NULL,
+                       broker_order_id text,
+                       broker_status text,
+                       created_at timestamptz NOT NULL DEFAULT now(),
+                       updated_at timestamptz NOT NULL DEFAULT now()
+                    )""")
+                # PostgreSQL considers numeric NaN greater than ordinary
+                # numbers, so the legacy > 0 check accepts this value.
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state)
+                       VALUES ('legacy-nan-notional', 'SPY', 'NaN'::numeric,
+                               'ATTEMPT_RESERVED')""")
+                conn.commit()
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(DDL)
+                conn.rollback()
+                self.assertEqual(conn.execute(
+                    "SELECT notional_usd::text FROM paper_order_ledger "
+                    "WHERE request_id='legacy-nan-notional'").fetchone(), ('NaN',))
+            finally:
+                conn.rollback()
+                conn.execute('DROP SCHEMA ledger_nan_migration_test CASCADE')
+                conn.commit()
+
     def test_legacy_invalid_order_state_blocks_migration(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
