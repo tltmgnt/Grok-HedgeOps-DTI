@@ -120,6 +120,43 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_migration_fails_closed_on_invalid_historical_confirmation(self):
+        import psycopg
+        from psycopg import sql
+        from uuid import uuid4
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        schema = 'ledger_invalid_' + uuid4().hex
+        with psycopg.connect(dsn) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.commit()
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                conn.execute(
+                    """CREATE TABLE paper_order_ledger (
+                       request_id varchar(48) PRIMARY KEY,
+                       symbol varchar(15) NOT NULL,
+                       notional_usd numeric(12,2) NOT NULL,
+                       state text NOT NULL,
+                       broker_order_id text,
+                       broker_status text,
+                       created_at timestamptz DEFAULT now(),
+                       updated_at timestamptz DEFAULT now())""")
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state)
+                       VALUES ('legacy-invalid', 'SPY', 25, 'BROKER_CONFIRMED')""")
+                conn.commit()
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(DDL)
+                conn.rollback()
+                row = conn.execute(
+                    'SELECT state, broker_order_id FROM paper_order_ledger '
+                    'WHERE request_id=%s', ('legacy-invalid',)).fetchone()
+                self.assertEqual(row, ('BROKER_CONFIRMED', None))
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+
     def test_ddl_upgrades_existing_ledger_table(self):
         import psycopg
         from psycopg import sql
