@@ -44,11 +44,31 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Position lifecycle actions require verified existing order/position')
     if mode == 'live' and approval != 'I_APPROVE_LIVE_OPTIONS':
         raise ValueError('Live options mode requires explicit approval phrase')
+    # Standard US equity options generally represent 100 shares per contract.
+    # These are planning estimates, not broker-verified risk or collateral.
+    premium = p * contracts * 100
+    cash_to_secure_put = s * contracts * 100
+    covered_shares = contracts * 100
+    if action in ('buy_call', 'buy_put'):
+        max_loss = premium
+    elif action in ('sell_put', 'cash_secured_put'):
+        # Conservative gross assignment exposure; premium is excluded.
+        max_loss = cash_to_secure_put
+    else:
+        max_loss = None  # Depends on owned shares and entry cost.
     return {
         'action': action, 'mode': mode, 'symbol': symbol,
         'expiration': expiry.isoformat(), 'strike': str(s),
         'contracts': contracts, 'limit_price': str(p),
-        'estimated_premium_usd': str(p * contracts * 100),
+        'estimated_premium_usd': str(premium),
+        'estimated_max_loss_usd': str(max_loss) if max_loss is not None else None,
+        'cash_secured_put_collateral_usd': (
+            str(cash_to_secure_put) if action in ('sell_put', 'cash_secured_put') else None
+        ),
+        'covered_call_shares_required': (
+            covered_shares if action in ('sell_call', 'covered_call') else None
+        ),
+        'risk_estimates_are_broker_verified': False,
         'status': 'VALIDATED_PLAN_ONLY',
         'broker_order_submitted': False,
         'warning': 'No options orders are sent by this workflow. '
