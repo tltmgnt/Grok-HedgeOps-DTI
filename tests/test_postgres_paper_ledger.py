@@ -33,8 +33,14 @@ class FakeLedger:
 
 class LedgerRecoveryTests(unittest.TestCase):
     def test_ledger_migrations_have_balanced_postgres_dollar_quotes(self):
-        # Catch malformed DO $ blocks before PostgreSQL integration starts.
-        self.assertNotIn('DO     def test_missing_credentials_do_not_reserve_durable_intent(self):
+        # Prevent malformed migration blocks from reaching integration CI.
+        marker = chr(36)
+        self.assertNotIn("DO " + marker + "\n", DDL)
+        self.assertNotIn("END " + marker + ";", DDL)
+        self.assertEqual(DDL.count("DO " + marker * 2),
+                         DDL.count("END " + marker * 2 + ";"))
+
+    def test_missing_credentials_do_not_reserve_durable_intent(self):
         ledger = FakeLedger()
         with self.assertRaisesRegex(ValueError, 'credentials missing'):
             submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
