@@ -120,6 +120,31 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_confirmation_requires_complete_broker_evidence(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-evidence'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    for order_id, status in ((None, 'accepted'), ('', 'accepted'),
+                                             ('order-1', None), ('order-1', '')):
+                        with self.subTest(order_id=order_id, status=status):
+                            with self.assertRaisesRegex(LedgerError, 'requires order ID and status'):
+                                ledger.record(rid, confirmed=True,
+                                              broker_order_id=order_id,
+                                              broker_status=status)
+                    row = conn.execute(
+                        'SELECT state, broker_order_id, broker_status '
+                        'FROM paper_order_ledger WHERE request_id=%s', (rid,)).fetchone()
+                    self.assertEqual(row, ('ATTEMPT_RESERVED', None, None))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_broker_order_id_cannot_belong_to_two_requests(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
