@@ -8,7 +8,7 @@ import threading
 import unittest
 from decimal import Decimal
 
-from postgres_paper_ledger import DDL, LedgerError, PostgresPaperLedger, submit_with_ledger
+from postgres_paper_ledger import DDL, LedgerError, PostgresPaperLedger, reconcile_with_ledger, submit_with_ledger
 
 RID = 'hedgeops-ledger-test-20261110'
 
@@ -88,6 +88,38 @@ class LedgerRecoveryTests(unittest.TestCase):
 @unittest.skipUnless(os.getenv('TEST_PAPER_LEDGER_DATABASE_URL'),
                      'requires disposable PostgreSQL test database')
 class PostgresConcurrencyTests(unittest.TestCase):
+    def test_reconcile_only_requires_existing_reservation_and_never_posts(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-reconcile'
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path != '/v2/orders:by_client_order_id':
+                raise AssertionError('Reconciliation attempted broker POST')
+            return {'id': 'reconciled-123', 'symbol': 'SPY', 'side': 'buy',
+                    'notional': '25', 'client_order_id': rid, 'status': 'accepted'}
+
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            with self.assertRaisesRegex(LedgerError, 'No durable reservation'):
+                reconcile_with_ledger(ledger, 'SPY', Decimal('25'), rid,
+                                      key='k', secret='s', get=broker)
+            self.assertEqual(calls, [])
+            with ledger.lock(rid):
+                self.assertTrue(ledger.reserve(rid, 'SPY', Decimal('25')))
+            result = reconcile_with_ledger(ledger, 'SPY', Decimal('25'), rid,
+                                           key='k', secret='s', get=broker)
+            self.assertTrue(result['reconciled_existing_order'])
+            self.assertEqual(calls, ['/v2/orders:by_client_order_id'])
+            row = conn.execute(
+                'SELECT state, broker_order_id FROM paper_order_ledger WHERE request_id=%s',
+                (rid,)).fetchone()
+            self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
+            conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_failed_transaction_releases_session_lock(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
