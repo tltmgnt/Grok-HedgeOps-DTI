@@ -4,6 +4,8 @@ Run against a disposable PostgreSQL database with OPTIONS_TEST_DATABASE_URL set.
 The test schema is isolated and dropped after the test suite.
 """
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 import unittest
 import uuid
@@ -52,6 +54,36 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
         self.reserve(client_id)
         with self.assertRaises(errors.UniqueViolation):
             self.reserve(client_id)
+
+    def test_concurrent_reservations_only_one_wins(self):
+        """Independent connections race to reserve the same client order ID."""
+        client_id = str(uuid.uuid4())
+        barrier = Barrier(2, timeout=10)
+
+        def attempt(_):
+            with psycopg.connect(os.environ['OPTIONS_TEST_DATABASE_URL'],
+                                 autocommit=True) as db:
+                db.execute('SET search_path TO ' + self.schema + ', public')
+                barrier.wait()
+                try:
+                    db.execute(
+                        """INSERT INTO options_order_intents
+                           (intent_id, client_order_id, account_id, environment,
+                            contract_symbol, side, quantity, limit_price, payload_sha256)
+                           VALUES (%s, %s, 'acct', 'paper',
+                                   'SPY   271119C00500000', 'buy', 1, 2.50, %s)""",
+                        (str(uuid.uuid4()), client_id, 'a' * 64))
+                    return 'reserved'
+                except errors.UniqueViolation:
+                    return 'duplicate'
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(attempt, range(2)))
+        self.assertCountEqual(outcomes, ['reserved', 'duplicate'])
+        count = self.db.execute(
+            'SELECT count(*) FROM options_order_intents WHERE client_order_id = %s',
+            (client_id,)).fetchone()[0]
+        self.assertEqual(count, 1)
 
     def test_delete_and_identity_mutation_rejected(self):
         intent = self.reserve()
