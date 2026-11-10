@@ -68,6 +68,7 @@ BEGIN
     IF OLD.state = 'BROKER_CONFIRMED' AND (
         NEW.state <> 'BROKER_CONFIRMED'
         OR NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id
+        OR NEW.broker_status IS DISTINCT FROM OLD.broker_status
     ) THEN
         RAISE EXCEPTION 'Confirmed broker identity cannot be changed'
             USING ERRCODE = '23514';
