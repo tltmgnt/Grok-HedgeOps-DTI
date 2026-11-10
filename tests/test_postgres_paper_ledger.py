@@ -166,6 +166,9 @@ class PostgresConcurrencyTests(unittest.TestCase):
                     with self.assertRaises(psycopg.errors.CheckViolation):
                         ledger.record(rid, confirmed=True,
                                       broker_order_id='filled-order', broker_status='accepted')
+                    # A PostgreSQL constraint violation aborts the transaction.
+                    # Reset it before inspecting the previously committed row.
+                    conn.rollback()
                     # The rejected update must not change the durable evidence.
                     row = conn.execute(
                         'SELECT state, broker_order_id, broker_status '
