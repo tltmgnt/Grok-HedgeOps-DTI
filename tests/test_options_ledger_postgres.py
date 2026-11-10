@@ -49,6 +49,20 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
             (intent, client_id or intent, 'a' * 64, broker_id))
         return intent
 
+    def test_public_has_no_ledger_or_audit_privileges(self):
+        for relation in ('options_order_intents', 'options_order_events'):
+            for privilege in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'):
+                with self.subTest(relation=relation, privilege=privilege):
+                    granted = self.db.execute(
+                        """SELECT has_table_privilege('public',
+                                  %s::regclass, %s)""",
+                        (relation, privilege)).fetchone()[0]
+                    self.assertFalse(granted)
+        self.assertFalse(self.db.execute(
+            """SELECT has_sequence_privilege(
+                   'public', 'options_order_events_event_id_seq'::regclass,
+                   'USAGE')""").fetchone()[0])
+
     def test_duplicate_client_order_id_rejected(self):
         client_id = str(uuid.uuid4())
         self.reserve(client_id)
