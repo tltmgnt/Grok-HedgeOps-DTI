@@ -50,6 +50,22 @@ class OptionsWorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'trusted collateral or position'):
                     verify_standard_contract(p, contract)
 
+    def test_contract_matcher_rejects_removed_or_modified_warnings(self):
+        p = options('buy_call')
+        yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
+        contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                    'type': 'call', 'strike_price': '500.00',
+                    'multiplier': '100', 'symbol': 'SPY   ' + yymmdd + 'C00500000'}
+        for altered in (
+            {k: v for k, v in p.items() if k != 'warning'},
+            {**p, 'warning': ''},
+            {**p, 'contract_warning': ''},
+            {**p, 'unexpected_execution_approval': True},
+        ):
+            with self.subTest(fields=tuple(altered)):
+                with self.assertRaises(ValueError):
+                    verify_standard_contract(altered, contract)
+
     def test_contract_verification_rejects_tampered_plan_fields(self):
         p = options('buy_call')
         yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
