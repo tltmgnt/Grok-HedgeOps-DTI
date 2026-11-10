@@ -151,6 +151,33 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_reservation_creation_time_cannot_be_rewritten(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-created-at'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                original = conn.execute(
+                    'SELECT created_at FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()[0]
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(
+                        "UPDATE paper_order_ledger "
+                        "SET created_at = created_at - interval '1 day' "
+                        "WHERE request_id=%s", (rid,))
+                conn.rollback()
+                actual = conn.execute(
+                    'SELECT created_at FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()[0]
+                self.assertEqual(actual, original)
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_terminal_broker_statuses_reject_stale_updates(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
