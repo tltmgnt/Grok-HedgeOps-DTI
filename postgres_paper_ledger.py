@@ -152,6 +152,17 @@ BEGIN
         RAISE EXCEPTION 'Terminal broker status cannot be overwritten'
             USING ERRCODE = '23514';
     END IF;
+    -- A partially filled order has execution evidence. A stale pre-fill
+    -- status must never conceal that execution, even if the order is not
+    -- terminal yet. Later fills or terminal outcomes remain allowed.
+    IF OLD.state = 'BROKER_CONFIRMED'
+       AND OLD.broker_status = 'partially_filled'
+       AND NEW.broker_status IN (
+           'new', 'accepted', 'pending_new', 'accepted_for_bidding'
+       ) THEN
+        RAISE EXCEPTION 'Partially filled order cannot revert to pre-fill status'
+            USING ERRCODE = '23514';
+    END IF;
     RETURN NEW;
 END
 $guard$;
