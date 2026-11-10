@@ -25,7 +25,7 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Invalid underlying symbol')
     # Require an unambiguous ISO date; fromisoformat also accepts compact
     # forms that are easy to misread in a manual order workflow.
-    if not isinstance(expiration, str) or not re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}', expiration):
+    if not isinstance(expiration, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', expiration):
         raise ValueError('Expiration must be YYYY-MM-DD')
     try:
         expiry = date.fromisoformat(expiration)
