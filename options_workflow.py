@@ -110,8 +110,17 @@ def verify_standard_contract(plan_result, contract):
     Only standard 100-share US equity options are supported. Missing or
     conflicting metadata must not silently inherit the planner's assumption.
     """
-    if not isinstance(plan_result, dict) or plan_result.get('status') != 'VALIDATED_PLAN_ONLY':
-        raise ValueError('Expected a validated options plan')
+    if (not isinstance(plan_result, dict)
+            or plan_result.get('status') != 'VALIDATED_PLAN_ONLY'
+            or set(plan_result) != {
+                'action', 'mode', 'symbol', 'expiration', 'strike',
+                'contracts', 'limit_price', 'estimated_premium_usd',
+                'estimated_max_loss_usd', 'cash_secured_put_collateral_usd',
+                'covered_call_shares_required', 'risk_estimates_are_broker_verified',
+                'assumed_contract_multiplier', 'contract_terms_verified',
+                'contract_warning', 'status', 'broker_order_submitted', 'warning'
+            }):
+        raise ValueError('Expected an unmodified validated options plan')
     # A caller-supplied dict is not evidence of a validated order. Reject
     # tampered plans before comparing contract metadata.
     # Reconstructing with fabricated verification=True would silently
@@ -133,7 +142,8 @@ def verify_standard_contract(plan_result, contract):
             'limit_price', 'estimated_premium_usd', 'estimated_max_loss_usd',
             'cash_secured_put_collateral_usd', 'covered_call_shares_required',
             'assumed_contract_multiplier', 'risk_estimates_are_broker_verified',
-            'contract_terms_verified', 'broker_order_submitted')):
+            'contract_terms_verified', 'contract_warning',
+            'broker_order_submitted', 'warning')):
         raise ValueError('Options plan fields are inconsistent or tampered')
     if not isinstance(contract, dict):
         raise ValueError('Broker contract metadata required')
