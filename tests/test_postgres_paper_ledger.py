@@ -120,6 +120,34 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_broker_order_id_cannot_belong_to_two_requests(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        first = RID + '-unique-a'
+        second = RID + '-unique-b'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(first):
+                    ledger.reserve(first, 'SPY', Decimal('25'))
+                    ledger.record(first, confirmed=True, broker_order_id='shared-order-id',
+                                  broker_status='accepted')
+                with ledger.lock(second):
+                    ledger.reserve(second, 'SPY', Decimal('25'))
+                    with self.assertRaises(psycopg.errors.UniqueViolation):
+                        ledger.record(second, confirmed=True,
+                                      broker_order_id='shared-order-id',
+                                      broker_status='accepted')
+                row = conn.execute(
+                    'SELECT state, broker_order_id FROM paper_order_ledger WHERE request_id=%s',
+                    (second,)).fetchone()
+                self.assertEqual(row, ('ATTEMPT_RESERVED', None))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id IN (%s, %s)',
+                             (first, second))
+
     def test_failed_transaction_releases_session_lock(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
