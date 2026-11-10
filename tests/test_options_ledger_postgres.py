@@ -66,6 +66,19 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
                  AND acl.grantee = 0""").fetchone()[0]
         self.assertEqual(public_sequence_grants, 0)
 
+    def test_public_cannot_execute_ledger_trigger_functions(self):
+        # PostgreSQL grants EXECUTE on new functions to PUBLIC by default;
+        # migration must explicitly revoke it.
+        for function in ('options_order_events_no_mutation()',
+                         'options_intent_guard()', 'options_intent_audit()'):
+            with self.subTest(function=function):
+                public_grants = self.db.execute(
+                    """SELECT count(*) FROM pg_proc p,
+                       LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+                       WHERE p.oid = %s::regprocedure AND acl.grantee = 0""",
+                    (function,)).fetchone()[0]
+                self.assertEqual(public_grants, 0)
+
     def test_duplicate_client_order_id_rejected(self):
         client_id = str(uuid.uuid4())
         self.reserve(client_id)
