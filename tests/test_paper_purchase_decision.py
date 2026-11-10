@@ -127,17 +127,17 @@ class PurchaseDecisionTests(unittest.TestCase):
             with self.subTest(symbol=symbol), self.assertRaises(ValueError):
                 validate(symbol, '25', ID)
 
-    def test_reconcile_only_cannot_post(self):
-        order = {'id': 'paper-test', 'symbol': 'SPY', 'side': 'buy', 'notional': '25',
-                 'client_order_id': ID, 'status': 'accepted'}
+    def test_reconcile_only_without_durable_ledger_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,
              {'ALPACA_API_KEY': 'k', 'ALPACA_API_SECRET': 's'}, clear=True):
             with patch('paper_purchase_decision.analyze', return_value={'reference': None}), \
-                 patch('paper_purchase_decision.request_json', return_value=order) as call:
+                 patch('paper_purchase_decision.request_json') as broker:
                 self.assertEqual(main(['--symbol', 'SPY', '--notional', '25', '--request-id', ID,
-                                       '--reconcile-only', '--output-dir', tmp]), 0)
-            self.assertEqual(call.call_args.args[1], '/v2/orders:by_client_order_id')
-            self.assertNotIn('payload', call.call_args.kwargs)
+                                       '--reconcile-only', '--output-dir', tmp]), 1)
+                broker.assert_not_called()
+            report = json.loads((Path(tmp)/'decision.json').read_text())
+            self.assertEqual(report['status'], 'BROKER_UNCONFIRMED_REQUIRES_RECONCILIATION')
+            self.assertFalse(report['order_filled'])
 
 
 if __name__ == '__main__':
