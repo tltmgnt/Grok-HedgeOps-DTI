@@ -151,6 +151,30 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_unconfirmed_attempt_cannot_be_reset_to_reserved(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-no-reset'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=False)
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(
+                        "UPDATE paper_order_ledger SET state='ATTEMPT_RESERVED' "
+                        "WHERE request_id=%s", (rid,))
+                conn.rollback()
+                row = conn.execute(
+                    'SELECT state FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()
+                self.assertEqual(row, ('BROKER_UNCONFIRMED',))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_direct_sql_cannot_rewrite_reserved_intent(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
