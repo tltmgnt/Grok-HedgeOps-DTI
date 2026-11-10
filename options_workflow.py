@@ -114,6 +114,12 @@ def verify_standard_contract(plan_result, contract):
         raise ValueError('Expected a validated options plan')
     # A caller-supplied dict is not evidence of a validated order. Reject
     # tampered plans before comparing contract metadata.
+    # Reconstructing with fabricated verification=True would silently
+    # bypass the original short-option risk gate. Only long options can be
+    # revalidated from the plan itself; short-option checks require trusted
+    # broker-side collateral/position evidence not present in this dict.
+    if plan_result.get('action') not in ('buy_call', 'buy_put'):
+        raise ValueError('Short options require trusted collateral or position evidence')
     expected = plan(
         plan_result.get('action'), plan_result.get('mode'),
         plan_result.get('symbol'), plan_result.get('expiration'),
@@ -121,7 +127,6 @@ def verify_standard_contract(plan_result, contract):
         plan_result.get('limit_price'),
         approval=('I_APPROVE_LIVE_OPTIONS'
                   if plan_result.get('mode') == 'live' else ''),
-        collateral_verified=True, position_verified=True,
     )
     if any(plan_result.get(field) != expected[field] for field in (
             'action', 'mode', 'symbol', 'expiration', 'strike', 'contracts',
