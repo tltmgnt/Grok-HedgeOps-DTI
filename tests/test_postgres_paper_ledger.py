@@ -92,6 +92,69 @@ class PostgresConcurrencyTests(unittest.TestCase):
                 with PostgresPaperLedger(other).lock(RID + '-failed'):
                     pass
 
+    def test_two_runners_cannot_double_post(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-race'
+        with psycopg.connect(dsn) as setup:
+            setup.execute(DDL)
+        posting = threading.Event()
+        release = threading.Event()
+        calls = []
+        errors = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            if path == '/v2/orders:by_client_order_id':
+                if not posting.is_set():
+                    raise RuntimeError('Alpaca HTTP 404')
+                return {'id': 'race-order', 'symbol': 'SPY', 'side': 'buy',
+                        'notional': '25', 'client_order_id': rid, 'status': 'accepted'}
+            if path == '/v2/account':
+                return {'status': 'ACTIVE', 'trading_blocked': False,
+                        'account_blocked': False, 'cash': '100', 'buying_power': '100'}
+            if path == '/v2/assets/SPY':
+                return {'status': 'active', 'tradable': True, 'fractionable': True}
+            if path == '/v2/orders':
+                calls.append(path)
+                posting.set()
+                if not release.wait(timeout=10):
+                    raise RuntimeError('Timed out waiting for test release')
+                return {'id': 'race-order', 'symbol': 'SPY', 'side': 'buy',
+                        'notional': '25', 'client_order_id': rid, 'status': 'accepted'}
+            raise AssertionError(path)
+
+        def first_runner():
+            try:
+                with psycopg.connect(dsn) as conn:
+                    submit_with_ledger(PostgresPaperLedger(conn), 'SPY',
+                                       Decimal('25'), rid, key='k', secret='s', get=broker)
+            except Exception as exc:
+                errors.append(exc)
+                posting.set()
+
+        thread = threading.Thread(target=first_runner)
+        thread.start()
+        try:
+            self.assertTrue(posting.wait(timeout=10))
+            self.assertFalse(errors)
+            with psycopg.connect(dsn) as conn:
+                with self.assertRaisesRegex(LedgerError, 'Another runner'):
+                    submit_with_ledger(PostgresPaperLedger(conn), 'SPY',
+                                       Decimal('25'), rid, key='k', secret='s', get=broker)
+            release.set()
+            thread.join(timeout=10)
+            self.assertFalse(errors)
+            with psycopg.connect(dsn) as conn:
+                result = submit_with_ledger(PostgresPaperLedger(conn), 'SPY',
+                                            Decimal('25'), rid, key='k', secret='s', get=broker)
+                self.assertTrue(result['reconciled_existing_order'])
+            self.assertEqual(calls, ['/v2/orders'])
+        finally:
+            release.set()
+            thread.join(timeout=10)
+            with psycopg.connect(dsn) as cleanup:
+                cleanup.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_cross_connection_lock_and_durable_reservation(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
