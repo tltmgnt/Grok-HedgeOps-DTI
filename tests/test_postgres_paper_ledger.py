@@ -182,6 +182,42 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_missing_broker_order_after_restart_stays_unconfirmed_without_post(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-missing-restart'
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path != '/v2/orders:by_client_order_id':
+                raise AssertionError('Recovery must never POST')
+            self.assertEqual(params, {'client_order_id': rid})
+            raise RuntimeError('Alpaca HTTP 404')
+
+        with psycopg.connect(dsn) as first_conn:
+            first_conn.execute(DDL)
+            with PostgresPaperLedger(first_conn).lock(rid):
+                self.assertTrue(PostgresPaperLedger(first_conn).reserve(
+                    rid, 'SPY', Decimal('25')))
+        with psycopg.connect(dsn) as second_conn:
+            ledger = PostgresPaperLedger(second_conn)
+            try:
+                for _ in range(2):
+                    with self.assertRaisesRegex(LedgerError, 'manual reconciliation'):
+                        submit_with_ledger(ledger, 'SPY', Decimal('25'), rid,
+                                           key='k', secret='s', get=broker)
+                    self.assertEqual(second_conn.execute(
+                        'SELECT state, broker_order_id, broker_status '
+                        'FROM paper_order_ledger WHERE request_id=%s',
+                        (rid,)).fetchone(),
+                        ('BROKER_UNCONFIRMED', None, None))
+                self.assertEqual(calls, ['/v2/orders:by_client_order_id'] * 2)
+            finally:
+                second_conn.rollback()
+                second_conn.execute(
+                    'DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_durable_reservation_survives_restart_without_second_post(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
