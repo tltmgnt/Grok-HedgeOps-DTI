@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
             AND broker_status IS NOT NULL AND length(btrim(broker_status)) > 0
         )
     ),
+    CONSTRAINT paper_order_ledger_evidence_consistency CHECK (
+        state = 'BROKER_CONFIRMED'
+        OR (broker_order_id IS NULL AND broker_status IS NULL)
+    ),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -87,6 +91,20 @@ DROP TRIGGER IF EXISTS paper_order_ledger_confirmed_guard ON paper_order_ledger;
 CREATE TRIGGER paper_order_ledger_confirmed_guard
 BEFORE UPDATE ON paper_order_ledger
 FOR EACH ROW EXECUTE FUNCTION paper_order_ledger_guard_confirmed();
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'paper_order_ledger'::regclass
+          AND conname = 'paper_order_ledger_evidence_consistency'
+    ) THEN
+        ALTER TABLE paper_order_ledger
+        ADD CONSTRAINT paper_order_ledger_evidence_consistency CHECK (
+            state = 'BROKER_CONFIRMED'
+            OR (broker_order_id IS NULL AND broker_status IS NULL)
+        );
+    END IF;
+END $;
 CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
     ON paper_order_ledger (broker_order_id)
     WHERE broker_order_id IS NOT NULL;
