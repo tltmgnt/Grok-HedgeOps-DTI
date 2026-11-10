@@ -67,10 +67,12 @@ BEGIN
        AND NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id THEN
         RAISE EXCEPTION 'options broker order ID is immutable once assigned';
     END IF;
+    -- Unknown submissions must not be declared rejected/cancelled without
+    -- authenticated broker reconciliation; keep them unresolved instead.
     IF NEW.status IS DISTINCT FROM OLD.status THEN
         IF NOT (
             (OLD.status = 'reserved' AND NEW.status IN ('submission_unknown', 'rejected', 'cancelled'))
-            OR (OLD.status = 'submission_unknown' AND NEW.status IN ('acknowledged', 'rejected', 'cancelled', 'filled'))
+            OR (OLD.status = 'submission_unknown' AND NEW.status IN ('acknowledged', 'filled'))
             OR (OLD.status = 'acknowledged' AND NEW.status IN ('filled', 'cancelled'))
         ) THEN
             RAISE EXCEPTION 'invalid options order status transition';
