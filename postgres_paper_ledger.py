@@ -13,6 +13,9 @@ DDL = """
 CREATE TABLE IF NOT EXISTS paper_order_ledger (
     request_id varchar(48) PRIMARY KEY,
     symbol varchar(15) NOT NULL,
+    CONSTRAINT paper_order_ledger_nonblank_identity CHECK (
+        length(btrim(request_id)) > 0 AND length(btrim(symbol)) > 0
+    ),
     notional_usd numeric(12,2) NOT NULL CHECK (notional_usd > 0 AND notional_usd <> 'NaN'::numeric),
     state text NOT NULL CHECK (state IN
         ('ATTEMPT_RESERVED','BROKER_UNCONFIRMED','BROKER_CONFIRMED')),
@@ -50,6 +53,20 @@ BEGIN
         );
     END IF;
 END $$;
+-- Validate legacy rows too; blank IDs or symbols cannot identify an order.
+DO $
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'paper_order_ledger'::regclass
+          AND conname = 'paper_order_ledger_nonblank_identity'
+    ) THEN
+        ALTER TABLE paper_order_ledger
+        ADD CONSTRAINT paper_order_ledger_nonblank_identity CHECK (
+            length(btrim(request_id)) > 0 AND length(btrim(symbol)) > 0
+        );
+    END IF;
+END $;
 -- PostgreSQL sorts numeric NaN above ordinary numbers, so a plain > 0
 -- check can accept NaN. Upgrade existing tables and reject corrupt rows.
 DO $$
@@ -161,9 +178,9 @@ class PostgresPaperLedger:
         # Reject invalid intent before touching the durable ledger. In
         # particular, PostgreSQL numeric(12,2) would silently round amounts
         # with excess fractional precision.
-        if (not isinstance(request_id, str) or not request_id
+        if (not isinstance(request_id, str) or not request_id.strip()
                 or len(request_id) > 48
-                or not isinstance(symbol, str) or not symbol
+                or not isinstance(symbol, str) or not symbol.strip()
                 or len(symbol) > 15):
             raise LedgerError('Invalid paper order request ID or symbol')
         if (not isinstance(amount, Decimal) or not amount.is_finite()
