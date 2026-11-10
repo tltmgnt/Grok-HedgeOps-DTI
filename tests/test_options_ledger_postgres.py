@@ -147,6 +147,28 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
                 "UPDATE options_order_intents SET status = 'cancelled' WHERE intent_id = %s",
                 (intent,))
 
+    def test_ambiguous_order_cannot_be_declared_cancelled_or_rejected(self):
+        intent = self.reserve()
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'submission_unknown' WHERE intent_id = %s",
+            (intent,))
+        for terminal in ('cancelled', 'rejected'):
+            with self.subTest(terminal=terminal):
+                with self.assertRaisesRegex(errors.RaiseException,
+                                            'invalid options order status transition'):
+                    self.db.execute(
+                        'UPDATE options_order_intents SET status = %s WHERE intent_id = %s',
+                        (terminal, intent))
+        status = self.db.execute(
+            'SELECT status FROM options_order_intents WHERE intent_id = %s',
+            (intent,)).fetchone()[0]
+        self.assertEqual(status, 'submission_unknown')
+        events = self.db.execute(
+            'SELECT event_type FROM options_order_events WHERE intent_id = %s ORDER BY event_id',
+            (intent,)).fetchall()
+        self.assertEqual([event[0] for event in events],
+                         ['reserved', 'submission_unknown'])
+
     def test_broker_order_id_cannot_be_reassigned_or_cleared(self):
         intent = self.reserve()
         broker_id = str(uuid.uuid4())
