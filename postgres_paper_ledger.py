@@ -46,6 +46,24 @@ BEGIN
         );
     END IF;
 END $$;
+-- Protect confirmed evidence against direct SQL updates and other writers.
+CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
+RETURNS trigger LANGUAGE plpgsql AS $guard$
+BEGIN
+    IF OLD.state = 'BROKER_CONFIRMED' AND (
+        NEW.state <> 'BROKER_CONFIRMED'
+        OR NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id
+    ) THEN
+        RAISE EXCEPTION 'Confirmed broker identity cannot be changed'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END
+$guard$;
+DROP TRIGGER IF EXISTS paper_order_ledger_confirmed_guard ON paper_order_ledger;
+CREATE TRIGGER paper_order_ledger_confirmed_guard
+BEFORE UPDATE ON paper_order_ledger
+FOR EACH ROW EXECUTE FUNCTION paper_order_ledger_guard_confirmed();
 CREATE UNIQUE INDEX IF NOT EXISTS paper_order_ledger_broker_order_id_unique
     ON paper_order_ledger (broker_order_id)
     WHERE broker_order_id IS NOT NULL;
