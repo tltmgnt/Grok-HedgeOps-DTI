@@ -83,15 +83,20 @@ class PostgresPaperLedger:
                 """UPDATE paper_order_ledger
                    SET state=CASE WHEN state='BROKER_CONFIRMED'
                                   THEN state ELSE %s END,
-                       broker_order_id=COALESCE(%s, broker_order_id),
-                       broker_status=COALESCE(%s, broker_status),
+                       broker_order_id=COALESCE(broker_order_id, %s),
+                       broker_status=CASE
+                           WHEN %s = 'BROKER_UNCONFIRMED' THEN broker_status
+                           ELSE %s END,
                        updated_at=now()
-                   WHERE request_id=%s""",
-                (state, broker_order_id, broker_status, request_id),
+                   WHERE request_id=%s
+                     AND (broker_order_id IS NULL OR %s IS NULL
+                          OR broker_order_id=%s)""",
+                (state, broker_order_id, state, broker_status, request_id,
+                 broker_order_id, broker_order_id),
             )
             if cur.rowcount != 1:
                 self.connection.rollback()
-                raise LedgerError('Ledger row missing')
+                raise LedgerError('Ledger row missing or broker order ID conflict')
         self.connection.commit()
 
 
