@@ -1,5 +1,8 @@
 name: PostgreSQL Paper Ledger Tests
 on:
+  push:
+    branches:
+      - hardening/postgres-paper-ledger
   pull_request:
     paths:
       - 'postgres_paper_ledger.py'
