@@ -1,6 +1,6 @@
 # Topology compatibility and curriculum v2 — Grok-HedgeOps-DTI
 
-Version 2 adapts the explicit-molecular-graph teaching pattern to this repository's actual role. This is documentation and a learning/decision framework; it introduces no mathematical engine, runtime dependency or operational permission.
+The verified edition of version 2 adapts the explicit-molecular-graph teaching pattern to this repository's actual role. This edition adds executable learning checks and reviewed answer keys. It does not introduce a new topology engine or grant operational permission.
 
 ## Repository decision
 
@@ -40,35 +40,53 @@ Prerequisites: basic programming, sets, functions and graph vocabulary. Work in 
 | 5. Comparison | Justify mathematical necessity and cost. | Complete the six-criterion card for the existing approach and one proposed alternative; record unknowns honestly. | Evidence-backed recommendation with baseline and explicit veto conditions. |
 | 6. Reproduction | Communicate the bounded result. | Reproduce the capstone using existing offline fixtures and record software version, inputs, outputs and limitations. | Reviewable notebook or report distinguishing computation, replay, independent evaluation and authorization. |
 
-## Source-linked reading laboratory
+## Worked reasoning and source explanation
 
-The table is a guided selection of source lines, not an assertion that the whole repository is covered. Line numbers refer to the inspected source blob `10c110413d219313fe37e2bf3f4b1db14771196e` in [agent.py](../../agent.py). Recheck anchors after source changes.
+validate_report() parses JSON, requires an object and the REQUIRED_FIELDS set, then checks ARRAY_FIELDS are lists. It does not require those arrays to be nonempty, authenticate evidence or verify prose. Consequently a structurally complete report containing an unverified recommendation still passes. The lab executes only the original validator and field-constant AST nodes; it excludes provider imports, credentials and analyze() entirely.
 
-| Line | Statement | Learning check |
+Read the [inspected source](https://github.com/tltmgnt/Grok-HedgeOps-DTI/blob/3cc2c1edbb87b7d869882c769dc098657b09baa9/agent.py) alongside the [executable answer key](../../curriculum/lab.py). The source link is pinned to the inspected revision; the lab and any explicitly described fix are in this change.
+
+## Run the worked laboratory
+
+From the repository root, with Python 3.12 (the recorded local version is 3.12.14):
+
+```sh
+python curriculum/lab.py --verify
+```
+
+The lab checks **5 explicit expectations** against selected original AST definitions without importing provider integration. It prints a JSON case report and exits nonzero on a wrong result. `--verify` additionally compares the entire case report with [expected.json](../../curriculum/expected.json). Read the input and predict each result before opening the answer key. No API account, credentials, model download, trading action or equipment connection is needed.
+
+| Checkpoint | Expected answer |
+| --- | --- |
+| complete advisory schema | `{"assumptions": [], "bottlenecks": [], "current_state": "UNKNOWN", "dependencies": [], "desired_state": "UNKNOWN", "evidence": [], "gaps": [], "observation": "UNKNOWN", "options": [], "recommendation": "UNKNOWN", "risks": [], "uncertainty": "UNKNOWN", "verification": []}` |
+| nonobject response | `"ValueError"` |
+| missing report fields | `"ValueError"` |
+| evidence must be an array | `"ValueError"` |
+| schema accepts unverified prose: not factual validation | `"An unverified assertion"` |
+
+The comparisons above encode independently specified small examples and contract expectations; a passing answer key is not evidence of complete domain correctness. The original functions and their existing test suites remain the authority for broader supported contracts.
+
+## Learner tasks and assessment rubric
+
+1. Before running the lab, predict every expected answer and derive one numeric result or state transition by hand.
+2. Explain the worked reasoning above using the referenced source, including the rejected or counterexample case.
+3. Add a new valid example and a nearby failing example. Explain which assumption changes, then compare against the existing implementation. For concept/static labs, keep the result explicitly at that level.
+4. Complete the scorecard for a proposed extension and a simpler baseline. Leave measurements unknown until collected; a task that the baseline already solves is not evidence for additional topology.
+
+| Competency | Points | Full-credit evidence |
 | --- | --- | --- |
-| [35](../../agent.py#L35) | `def validate_report(content: str) -> dict:` | State the input/output contract and trace one normal and one failing case. |
-| [40](../../agent.py#L40) | `raise ValueError("Model response is not valid JSON") from exc` | Construct the triggering input and explain why rejection preserves the contract. |
-| [42](../../agent.py#L42) | `raise ValueError("Model response must be a JSON object")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [45](../../agent.py#L45) | `raise ValueError(f"Model response missing fields: {', '.join(sorted(missing))}")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [48](../../agent.py#L48) | `raise ValueError(f"Model response field {field!r} must be an array")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [49](../../agent.py#L49) | `return report` | Predict the returned value and distinguish a computed result from authorization. |
-| [52](../../agent.py#L52) | `def analyze(problem: str) -> dict:` | State the input/output contract and trace one normal and one failing case. |
-| [54](../../agent.py#L54) | `raise ValueError("Problem must be non-empty text")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [59](../../agent.py#L59) | `raise ValueError("Set XAI_API_KEY in your .env file")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [61](../../agent.py#L61) | `raise ValueError("Set XAI_MODEL to a model available in your xAI Console")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [76](../../agent.py#L76) | `raise ValueError("Model returned an empty response")` | Construct the triggering input and explain why rejection preserves the contract. |
-| [77](../../agent.py#L77) | `return validate_report(content)` | Predict the returned value and distinguish a computed result from authorization. |
-## Assessment and verification
+| Model and contract | 0–3 | Correct objects, relation direction, labels/units, input bounds and missingness. |
+| Derivation and trace | 0–3 | Hand derivation agrees with the specified fixture; source steps explain why. |
+| Counterexample | 0–3 | New failing/boundary case has a justified expected result; rejection is not suppressed. |
+| Scope and necessity | 0–3 | Distinguishes software behavior from validation and compares an explicit simpler alternative. |
 
-A learner must explain the model, trace the capstone, identify a counterexample and state the scope boundary. Assess these four competencies equally; a numerical score cannot compensate for an unsupported scientific or operational claim.
+Completion requires at least 10/12 and no zero in scope/necessity. A runnable answer key alone is not evidence that a learner achieved this competency. No learner-outcome study has been performed.
 
-Relevant existing checks:
+## Verification evidence and maintenance
 
-- [tests/test_agent_validation.py](../../tests/test_agent_validation.py)
-- [tests/test_alpaca_purchase.py](../../tests/test_alpaca_purchase.py)
-- [tests/test_assurance_register.py](../../tests/test_assurance_register.py)
+[VALIDATION.json](../../curriculum/VALIDATION.json) records the inspected base revision, local Python version, source/fixture hashes, lab/answer hashes, case count and exit codes. All cases were executed locally. An in-memory copy with a deliberately wrong comparison was also executed and returned nonzero, checking that the grading failure path is active. Those injected failures are harness checks, not scientific adversarial evaluations.
 
-Follow [README](../../README.md) for environment and installed-package instructions. Read scripts before execution; source-reading exercises do not authorize provider calls, model downloads, live orders, hardware actions or messages. Synthetic fixtures establish software behavior only. This documentation change does not report those exercises as already executed.
+The dedicated [curriculum workflow](../../.github/workflows/curriculum.yml) runs the same `--verify` command on relevant pull-request changes. CI status is reported by GitHub; the local record does not assert that remote CI passed. Existing full-suite and installed-package requirements still apply to runtime changes. When source or fixture semantics change, inspect the diff and rederive answers before updating expected.json. Never regenerate expected answers solely to silence a failure. Refresh the local validation record after an actual run; do not rewrite its recorded base revision as if a new run occurred.
 
 ## Interoperability and adoption gate
 

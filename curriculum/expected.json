@@ -1,0 +1,66 @@
+{
+  "case_count": 5,
+  "cases": [
+    {
+      "actual": {
+        "assumptions": [],
+        "bottlenecks": [],
+        "current_state": "UNKNOWN",
+        "dependencies": [],
+        "desired_state": "UNKNOWN",
+        "evidence": [],
+        "gaps": [],
+        "observation": "UNKNOWN",
+        "options": [],
+        "recommendation": "UNKNOWN",
+        "risks": [],
+        "uncertainty": "UNKNOWN",
+        "verification": []
+      },
+      "case": "complete advisory schema",
+      "expected": {
+        "assumptions": [],
+        "bottlenecks": [],
+        "current_state": "UNKNOWN",
+        "dependencies": [],
+        "desired_state": "UNKNOWN",
+        "evidence": [],
+        "gaps": [],
+        "observation": "UNKNOWN",
+        "options": [],
+        "recommendation": "UNKNOWN",
+        "risks": [],
+        "uncertainty": "UNKNOWN",
+        "verification": []
+      },
+      "passed": true
+    },
+    {
+      "actual": "ValueError",
+      "case": "nonobject response",
+      "expected": "ValueError",
+      "passed": true
+    },
+    {
+      "actual": "ValueError",
+      "case": "missing report fields",
+      "expected": "ValueError",
+      "passed": true
+    },
+    {
+      "actual": "ValueError",
+      "case": "evidence must be an array",
+      "expected": "ValueError",
+      "passed": true
+    },
+    {
+      "actual": "An unverified assertion",
+      "case": "schema accepts unverified prose: not factual validation",
+      "expected": "An unverified assertion",
+      "passed": true
+    }
+  ],
+  "schema_version": 1,
+  "scope": "Synthetic curriculum checks only",
+  "status": "PASS"
+}
