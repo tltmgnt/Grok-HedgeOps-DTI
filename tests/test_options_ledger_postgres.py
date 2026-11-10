@@ -104,6 +104,9 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
         with self.assertRaises(errors.UniqueViolation):
             self.reserve(broker_id=broker_id)
         intent = self.reserve()
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'submission_unknown' WHERE intent_id = %s",
+            (intent,))
         with self.assertRaises(errors.CheckViolation):
             self.db.execute(
                 "UPDATE options_order_intents SET status = 'acknowledged' WHERE intent_id = %s",
