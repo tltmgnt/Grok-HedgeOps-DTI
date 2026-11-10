@@ -52,7 +52,7 @@ BEGIN
 END $$;
 -- PostgreSQL sorts numeric NaN above ordinary numbers, so a plain > 0
 -- check can accept NaN. Upgrade existing tables and reject corrupt rows.
-DO $
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
@@ -63,7 +63,7 @@ BEGIN
         ADD CONSTRAINT paper_order_ledger_notional_finite
         CHECK (notional_usd > 0 AND notional_usd <> 'NaN'::numeric);
     END IF;
-END $;
+END $$;
 -- Protect confirmed evidence against direct SQL updates and other writers.
 CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
