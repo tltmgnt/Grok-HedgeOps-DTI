@@ -117,6 +117,28 @@ class OptionsLedgerPostgresTests(unittest.TestCase):
                 "UPDATE options_order_intents SET status = 'cancelled' WHERE intent_id = %s",
                 (intent,))
 
+    def test_broker_order_id_cannot_be_reassigned_or_cleared(self):
+        intent = self.reserve()
+        broker_id = str(uuid.uuid4())
+        self.db.execute(
+            "UPDATE options_order_intents SET status = 'submission_unknown' WHERE intent_id = %s",
+            (intent,))
+        self.db.execute(
+            """UPDATE options_order_intents
+               SET status = 'acknowledged', broker_order_id = %s
+               WHERE intent_id = %s""",
+            (broker_id, intent))
+        for replacement in (str(uuid.uuid4()), None):
+            with self.subTest(replacement=replacement):
+                with self.assertRaisesRegex(errors.RaiseException, 'immutable once assigned'):
+                    self.db.execute(
+                        "UPDATE options_order_intents SET broker_order_id = %s WHERE intent_id = %s",
+                        (replacement, intent))
+        actual = self.db.execute(
+            'SELECT broker_order_id FROM options_order_intents WHERE intent_id = %s',
+            (intent,)).fetchone()[0]
+        self.assertEqual(actual, broker_id)
+
     def test_append_only_events(self):
         intent = self.reserve()
         event_id = self.db.execute(
