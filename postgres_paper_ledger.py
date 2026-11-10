@@ -58,6 +58,13 @@ BEGIN
         RAISE EXCEPTION 'Reserved order intent cannot be changed'
             USING ERRCODE = '23514';
     END IF;
+    -- Once a submission has become ambiguous, reverting to RESERVED would
+    -- falsely suggest that no broker attempt has happened.
+    IF OLD.state = 'BROKER_UNCONFIRMED'
+       AND NEW.state = 'ATTEMPT_RESERVED' THEN
+        RAISE EXCEPTION 'Unconfirmed broker attempt cannot become reserved again'
+            USING ERRCODE = '23514';
+    END IF;
     IF OLD.state = 'BROKER_CONFIRMED' AND (
         NEW.state <> 'BROKER_CONFIRMED'
         OR NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id
