@@ -103,9 +103,21 @@ def submit(symbol, amount, request_id, *, key, secret, get=request_json):
     # Manual purchases deliberately do not require the automatic strategy's score,
     # news, five-position cap or market-open gate. Closed-session orders may queue.
     # POST once only. A timeout is AMBIGUOUS, never a reason to retry blindly.
-    order = get(PAPER, '/v2/orders', key, secret, payload={
-        'symbol': symbol, 'notional': f'{amount:.2f}', 'side': 'buy',
-        'type': 'market', 'time_in_force': 'day', 'client_order_id': request_id})
+    try:
+        order = get(PAPER, '/v2/orders', key, secret, payload={
+            'symbol': symbol, 'notional': f'{amount:.2f}', 'side': 'buy',
+            'type': 'market', 'time_in_force': 'day', 'client_order_id': request_id})
+    except RuntimeError:
+        # A failed POST may already have reached the broker. Read-only lookup
+        # can establish an existing order; NEVER repeat the POST.
+        try:
+            recovered = get(PAPER, '/v2/orders:by_client_order_id', key, secret,
+                            params={'client_order_id': request_id})
+        except (RuntimeError, OSError):
+            raise RuntimeError(
+                'Order outcome uncertain; reconcile by client order ID before any new action'
+            ) from None
+        return acknowledgment(recovered, symbol, amount, request_id, existing=True)
     return acknowledgment(order, symbol, amount, request_id)
 
 
