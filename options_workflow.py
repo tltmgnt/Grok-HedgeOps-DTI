@@ -53,11 +53,13 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Position lifecycle actions require verified existing order/position')
     if mode == 'live' and approval != 'I_APPROVE_LIVE_OPTIONS':
         raise ValueError('Live options mode requires explicit approval phrase')
-    # Standard US equity options generally represent 100 shares per contract.
-    # These are planning estimates, not broker-verified risk or collateral.
-    premium = p * contracts * 100
-    cash_to_secure_put = s * contracts * 100
-    covered_shares = contracts * 100
+    # Estimates assume standard 100-share equity-option contracts. Adjusted
+    # contracts and other multipliers require broker contract metadata and
+    # cannot safely be planned from symbol/strike/expiry alone.
+    multiplier = 100
+    premium = p * contracts * multiplier
+    cash_to_secure_put = s * contracts * multiplier
+    covered_shares = contracts * multiplier
     if action in ('buy_call', 'buy_put'):
         max_loss = premium
     elif action in ('sell_put', 'cash_secured_put'):
@@ -78,6 +80,14 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
             covered_shares if action in ('sell_call', 'covered_call') else None
         ),
         'risk_estimates_are_broker_verified': False,
+        'assumed_contract_multiplier': multiplier,
+        'contract_terms_verified': False,
+        'contract_warning': (
+            'Estimates assume a standard 100-share contract. Adjusted '
+            'deliverables, contract multiplier, option availability, and '
+            'exercise style must be verified from broker contract metadata '
+            'before any PAPER or live execution.'
+        ),
         'status': 'VALIDATED_PLAN_ONLY',
         'broker_order_submitted': False,
         'warning': 'No options orders are sent by this workflow. '
