@@ -23,6 +23,10 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Unknown options action or mode')
     if not re.fullmatch(r'[A-Z][A-Z0-9.]{0,14}', symbol):
         raise ValueError('Invalid underlying symbol')
+    # Require an unambiguous ISO date; fromisoformat also accepts compact
+    # forms that are easy to misread in a manual order workflow.
+    if not isinstance(expiration, str) or not re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}', expiration):
+        raise ValueError('Expiration must be YYYY-MM-DD')
     try:
         expiry = date.fromisoformat(expiration)
         s, p = Decimal(str(strike)), Decimal(str(limit_price))
@@ -30,6 +34,11 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Invalid expiry, strike, or limit price') from exc
     if expiry < date.today() or not s.is_finite() or not p.is_finite():
         raise ValueError('Expired contract or non-finite price')
+    # Bound the manual input to avoid nonsensical exposure estimates and
+    # oversized Decimal arithmetic. These are planner limits, not a claim
+    # about broker-supported contracts or executable prices.
+    if s > Decimal('1000000') or p > Decimal('1000000'):
+        raise ValueError('Strike or limit exceeds planner safety bound')
     if s <= 0 or p <= 0 or s.as_tuple().exponent < -2 or p.as_tuple().exponent < -2:
         raise ValueError('Strike and limit must be positive with at most 2 decimals')
     if type(contracts) is not int or not 1 <= contracts <= 100:
