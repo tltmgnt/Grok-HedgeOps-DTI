@@ -115,6 +115,16 @@ class PostgresConcurrencyTests(unittest.TestCase):
             with psycopg.connect(dsn) as conn:
                 ledger = PostgresPaperLedger(conn)
                 with ledger.lock(RID):
+                    ledger.record(RID, confirmed=True,
+                                  broker_order_id='paper-123', broker_status='accepted')
+                    ledger.record(RID, confirmed=False)
+                    row = conn.execute(
+                        'SELECT state, broker_order_id FROM paper_order_ledger WHERE request_id=%s',
+                        (RID,)).fetchone()
+                    self.assertEqual(row, ('BROKER_CONFIRMED', 'paper-123'))
+            with psycopg.connect(dsn) as conn:
+                ledger = PostgresPaperLedger(conn)
+                with ledger.lock(RID):
                     self.assertFalse(ledger.reserve(RID, 'SPY', Decimal('25')))
                     with self.assertRaisesRegex(LedgerError, 'different order'):
                         ledger.reserve(RID, 'AAPL', Decimal('25'))
