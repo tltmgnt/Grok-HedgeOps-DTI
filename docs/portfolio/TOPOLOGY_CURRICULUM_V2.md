@@ -42,7 +42,7 @@ Prerequisites: basic programming, sets, functions and graph vocabulary. Work in 
 
 ## Worked reasoning and source explanation
 
-validate_report() parses JSON, requires an object and the REQUIRED_FIELDS set, then checks ARRAY_FIELDS are lists. It does not require those arrays to be nonempty, authenticate evidence or verify prose. Consequently a structurally complete report containing an unverified recommendation still passes. The lab executes only the original validator and field-constant AST nodes; it excludes provider imports, credentials and analyze() entirely.
+validate_report() parses JSON, requires an object and the REQUIRED_FIELDS set, then checks ARRAY_FIELDS are lists. It does not require those arrays to be nonempty, authenticate evidence or verify prose. Consequently a structurally complete report containing an unverified recommendation still passes. The original validator and field constants now live unchanged in report_validation.py; agent.py re-exports their names for compatibility. The lab imports that dependency-free module and excludes provider imports, credentials and analyze() entirely.
 
 Read the [inspected source](https://github.com/tltmgnt/Grok-HedgeOps-DTI/blob/3cc2c1edbb87b7d869882c769dc098657b09baa9/agent.py) alongside the [executable answer key](../../curriculum/lab.py). The source link is pinned to the inspected revision; the lab and any explicitly described fix are in this change.
 
@@ -54,7 +54,7 @@ From the repository root, with Python 3.12 (the recorded local version is 3.12.1
 python curriculum/lab.py --verify
 ```
 
-The lab checks **5 explicit expectations** against selected original AST definitions without importing provider integration. It prints a JSON case report and exits nonzero on a wrong result. `--verify` additionally compares the entire case report with [expected.json](../../curriculum/expected.json). Read the input and predict each result before opening the answer key. No API account, credentials, model download, trading action or equipment connection is needed.
+The lab checks **5 explicit expectations** against the dependency-free report-validation module without importing provider integration. It prints a JSON case report and exits nonzero on a wrong result. `--verify` additionally compares the entire case report with [expected.json](../../curriculum/expected.json). Read the input and predict each result before opening the answer key. No API account, credentials, model download, trading action or equipment connection is needed.
 
 | Checkpoint | Expected answer |
 | --- | --- |

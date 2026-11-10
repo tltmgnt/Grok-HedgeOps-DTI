@@ -28,27 +28,12 @@ def rejects(name, call, error=ValueError):
 
 
 
-def definitions(path, names, namespace):
-    # Execute selected original AST definitions, excluding provider imports/calls.
-    tree = ast.parse((ROOT / path).read_text())
-    chosen = []
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names:
-            chosen.append(node)
-        elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in names for t in node.targets):
-            chosen.append(node)
-    found = {n.name for n in chosen if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
-    found |= {t.id for n in chosen if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
-    if found != set(names):
-        raise ValueError("Reviewed source definitions changed")
-    exec(compile(ast.Module(body=chosen, type_ignores=[]), str(ROOT / path), "exec"), namespace)
-    return namespace
 
 def run():
-    # Evaluate the original pure validator without importing or calling model clients.
-    ns = definitions("agent.py", {"REQUIRED_FIELDS","ARRAY_FIELDS","validate_report"}, {"json":json})
-    validate = ns["validate_report"]
-    r = {key: [] if key in ns["ARRAY_FIELDS"] else "UNKNOWN" for key in ns["REQUIRED_FIELDS"]}
+    # Import the original pure validator through its dependency-free module.
+    from report_validation import ARRAY_FIELDS, REQUIRED_FIELDS, validate_report
+    validate = validate_report
+    r = {key: [] if key in ARRAY_FIELDS else "UNKNOWN" for key in REQUIRED_FIELDS}
     check("complete advisory schema", validate(json.dumps(r)), r)
     rejects("nonobject response", lambda: validate("[]"))
     rejects("missing report fields", lambda: validate("{}"))

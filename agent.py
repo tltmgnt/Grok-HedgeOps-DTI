@@ -1,12 +1,14 @@
 """DTI Ω × HedgeOps Ω — minimal Grok-powered intelligence agent."""
 from __future__ import annotations
 
-import json
 import os
 import sys
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+# Re-export the existing validator API for callers importing from agent.
+from report_validation import ARRAY_FIELDS, REQUIRED_FIELDS, validate_report
 
 SYSTEM_PROMPT = """You are the DTI Ω × HedgeOps Ω Intelligence Agent.
 Analyze temporal constraints, capacity, opportunity, uncertainty, risk and gaps.
@@ -21,32 +23,8 @@ options, risks and verification. State UNKNOWN when evidence is missing.
 For recommendations specify falsification conditions in verification.
 """
 
-REQUIRED_FIELDS = frozenset({
-    "observation", "evidence", "assumptions", "current_state",
-    "desired_state", "gaps", "dependencies", "bottlenecks", "options",
-    "risks", "uncertainty", "recommendation", "verification",
-})
-ARRAY_FIELDS = frozenset({
-    "evidence", "assumptions", "gaps", "dependencies",
-    "bottlenecks", "options", "risks", "verification",
-})
 
 
-def validate_report(content: str) -> dict:
-    """Reject malformed or structurally incomplete model responses."""
-    try:
-        report = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Model response is not valid JSON") from exc
-    if not isinstance(report, dict):
-        raise ValueError("Model response must be a JSON object")
-    missing = REQUIRED_FIELDS - report.keys()
-    if missing:
-        raise ValueError(f"Model response missing fields: {', '.join(sorted(missing))}")
-    for field in ARRAY_FIELDS:
-        if not isinstance(report[field], list):
-            raise ValueError(f"Model response field {field!r} must be an array")
-    return report
 
 
 def analyze(problem: str) -> dict:
