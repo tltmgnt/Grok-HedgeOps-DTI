@@ -151,6 +151,43 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_identity_constraint_rejects_blank_legacy_rows_on_migration(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        # Use a private schema to ensure legacy migration tests do not
+        # modify the shared integration-test ledger.
+        with psycopg.connect(dsn) as conn:
+            conn.execute('CREATE SCHEMA IF NOT EXISTS ledger_identity_migration_test')
+            conn.execute('SET search_path TO ledger_identity_migration_test')
+            try:
+                conn.execute('DROP TABLE IF EXISTS paper_order_ledger CASCADE')
+                conn.execute(
+                    """CREATE TABLE paper_order_ledger (
+                       request_id varchar(48) PRIMARY KEY,
+                       symbol varchar(15) NOT NULL,
+                       notional_usd numeric(12,2) NOT NULL,
+                       state text NOT NULL,
+                       broker_order_id text,
+                       broker_status text,
+                       created_at timestamptz NOT NULL DEFAULT now(),
+                       updated_at timestamptz NOT NULL DEFAULT now()
+                    )""")
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state)
+                       VALUES ('legacy-blank-symbol', '   ', 25, 'ATTEMPT_RESERVED')""")
+                conn.commit()
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(DDL)
+                conn.rollback()
+                self.assertEqual(conn.execute(
+                    "SELECT symbol FROM paper_order_ledger "
+                    "WHERE request_id='legacy-blank-symbol'").fetchone(), ('   ',))
+            finally:
+                conn.rollback()
+                conn.execute('DROP SCHEMA ledger_identity_migration_test CASCADE')
+                conn.commit()
+
     def test_timestamp_constraint_rejects_invalid_legacy_rows_on_migration(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
