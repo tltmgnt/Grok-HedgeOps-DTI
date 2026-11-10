@@ -227,11 +227,16 @@ def main(argv=None):
     if args.submit_paper or args.reconcile_only:
         try:
             if args.reconcile_only:
-                if not key or not secret:
-                    raise ValueError('Paper credentials missing')
-                order = request_json(PAPER, '/v2/orders:by_client_order_id', key, secret,
-                                     params={'client_order_id': args.request_id})
-                report.update(acknowledgment(order, args.symbol, amount, args.request_id, existing=True))
+                database_url = os.getenv('PAPER_LEDGER_DATABASE_URL', '')
+                if not database_url:
+                    raise RuntimeError('PostgreSQL paper ledger is required for reconciliation')
+                import psycopg
+                from postgres_paper_ledger import PostgresPaperLedger, reconcile_with_ledger
+                with psycopg.connect(database_url, connect_timeout=10,
+                                     sslmode='require', autocommit=False) as conn:
+                    report.update(reconcile_with_ledger(
+                        PostgresPaperLedger(conn), args.symbol, amount, args.request_id,
+                        key=key, secret=secret, get=request_json))
             else:
                 # No paper broker POST without durable cross-run coordination.
                 database_url = os.getenv('PAPER_LEDGER_DATABASE_URL', '')
