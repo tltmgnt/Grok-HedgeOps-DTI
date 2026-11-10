@@ -182,6 +182,43 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_mismatched_broker_identity_after_restart_stays_unconfirmed(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-mismatch-restart'
+        calls = []
+
+        def broker(host, path, key, secret, *, params=None, payload=None):
+            calls.append(path)
+            if path != '/v2/orders:by_client_order_id':
+                raise AssertionError('Recovery must never POST')
+            self.assertEqual(params, {'client_order_id': rid})
+            return {'id': 'untrusted-mismatch-order', 'symbol': 'AAPL',
+                    'side': 'buy', 'notional': '25',
+                    'client_order_id': rid, 'status': 'accepted'}
+
+        with psycopg.connect(dsn) as first_conn:
+            first_conn.execute(DDL)
+            first_ledger = PostgresPaperLedger(first_conn)
+            with first_ledger.lock(rid):
+                self.assertTrue(first_ledger.reserve(rid, 'SPY', Decimal('25')))
+        with psycopg.connect(dsn) as second_conn:
+            ledger = PostgresPaperLedger(second_conn)
+            try:
+                with self.assertRaisesRegex(LedgerError, 'manual reconciliation'):
+                    submit_with_ledger(ledger, 'SPY', Decimal('25'), rid,
+                                       key='k', secret='s', get=broker)
+                self.assertEqual(calls, ['/v2/orders:by_client_order_id'])
+                self.assertEqual(second_conn.execute(
+                    'SELECT symbol, notional_usd, state, broker_order_id, broker_status '
+                    'FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone(),
+                    ('SPY', Decimal('25'), 'BROKER_UNCONFIRMED', None, None))
+            finally:
+                second_conn.rollback()
+                second_conn.execute(
+                    'DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_missing_broker_order_after_restart_stays_unconfirmed_without_post(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
