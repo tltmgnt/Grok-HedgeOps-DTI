@@ -203,6 +203,7 @@ class PostgresConcurrencyTests(unittest.TestCase):
         rid = RID + '-blank-identity'
         with psycopg.connect(dsn) as conn:
             conn.execute(DDL)
+            conn.commit()  # Preserve schema across expected CHECK-violation rollbacks.
             ledger = PostgresPaperLedger(conn)
             for request_id, symbol in (('   ', 'SPY'), (rid, '   ')):
                 with self.subTest(request_id=request_id, symbol=symbol):
@@ -225,6 +226,7 @@ class PostgresConcurrencyTests(unittest.TestCase):
         rid = RID + '-sql-nan'
         with psycopg.connect(dsn) as conn:
             conn.execute(DDL)
+            conn.commit()  # Expected failure must not roll back the table itself.
             with self.assertRaises(psycopg.errors.CheckViolation):
                 conn.execute(
                     """INSERT INTO paper_order_ledger
