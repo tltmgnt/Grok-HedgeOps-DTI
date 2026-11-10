@@ -88,7 +88,7 @@ CREATE TRIGGER options_intent_immutable
 -- Write an audit record in the same transaction as every reservation or
 -- status transition. A failed audit insert rolls back the state change.
 CREATE OR REPLACE FUNCTION options_intent_audit()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         INSERT INTO options_order_events (intent_id, event_type, details)
@@ -103,7 +103,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 DROP TRIGGER IF EXISTS options_intent_audit_trigger ON options_order_intents;
 CREATE TRIGGER options_intent_audit_trigger
     AFTER INSERT OR UPDATE ON options_order_intents
