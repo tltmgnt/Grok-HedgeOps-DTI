@@ -4,14 +4,18 @@ on:
     branches: [hardening/postgres-paper-ledger]
     paths:
       - 'options_workflow.py'
+      - 'options_reconciliation.py'
       - 'tests/test_options_workflow.py'
+      - 'tests/test_options_reconciliation.py'
       - 'tests/test_options_ledger_migration.py'
       - 'migrations/20261110_options_intent_ledger.sql'
       - '.github/workflows/options-actions.yml'
   pull_request:
     paths:
       - 'options_workflow.py'
+      - 'options_reconciliation.py'
       - 'tests/test_options_workflow.py'
+      - 'tests/test_options_reconciliation.py'
       - 'tests/test_options_ledger_migration.py'
       - 'migrations/20261110_options_intent_ledger.sql'
       - '.github/workflows/options-actions.yml'
@@ -77,6 +81,8 @@ jobs:
           python-version: '3.12'
       - name: Run options planner safety tests
         run: python -m unittest discover -s tests -p 'test_options_workflow.py' -v
+      - name: Run offline reconciliation fail-closed tests
+        run: python -m unittest discover -s tests -p 'test_options_reconciliation.py' -v
       - name: Check options ledger migration safety invariants
         run: python -m unittest discover -s tests -p 'test_options_ledger_migration.py' -v
       - name: Validate options intent without credentials or broker network calls
