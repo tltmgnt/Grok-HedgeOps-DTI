@@ -50,6 +50,14 @@ END $$;
 CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
 BEGIN
+    -- The request ID, symbol and notional define the original durable intent.
+    -- They must not be reassigned, even while an order is unconfirmed.
+    IF NEW.request_id IS DISTINCT FROM OLD.request_id
+       OR NEW.symbol IS DISTINCT FROM OLD.symbol
+       OR NEW.notional_usd IS DISTINCT FROM OLD.notional_usd THEN
+        RAISE EXCEPTION 'Reserved order intent cannot be changed'
+            USING ERRCODE = '23514';
+    END IF;
     IF OLD.state = 'BROKER_CONFIRMED' AND (
         NEW.state <> 'BROKER_CONFIRMED'
         OR NEW.broker_order_id IS DISTINCT FROM OLD.broker_order_id
