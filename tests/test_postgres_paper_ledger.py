@@ -32,6 +32,14 @@ class FakeLedger:
 
 
 class LedgerRecoveryTests(unittest.TestCase):
+    def test_missing_credentials_do_not_reserve_durable_intent(self):
+        ledger = FakeLedger()
+        with self.assertRaisesRegex(ValueError, 'credentials missing'):
+            submit_with_ledger(ledger, 'SPY', Decimal('25'), RID,
+                               key='', secret='', get=lambda *a, **kw: self.fail('broker called'))
+        self.assertFalse(ledger.seen)
+        self.assertEqual(ledger.records, [])
+
     def test_restart_reconciles_without_second_post(self):
         ledger = FakeLedger()
         calls = []
