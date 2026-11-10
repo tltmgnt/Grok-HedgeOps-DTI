@@ -151,6 +151,34 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_update_audit_timestamp_cannot_be_backdated(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-updated-at'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            try:
+                with ledger.lock(rid):
+                    ledger.reserve(rid, 'SPY', Decimal('25'))
+                    ledger.record(rid, confirmed=False)
+                original = conn.execute(
+                    'SELECT updated_at FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()[0]
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    conn.execute(
+                        "UPDATE paper_order_ledger "
+                        "SET updated_at = updated_at - interval '1 day' "
+                        "WHERE request_id=%s", (rid,))
+                conn.rollback()
+                actual = conn.execute(
+                    'SELECT updated_at, state FROM paper_order_ledger WHERE request_id=%s',
+                    (rid,)).fetchone()
+                self.assertEqual(actual, (original, 'BROKER_UNCONFIRMED'))
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
+
     def test_blank_order_identity_rejected_by_application_and_database(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
