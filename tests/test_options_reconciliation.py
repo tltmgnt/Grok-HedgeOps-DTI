@@ -1,5 +1,6 @@
 """Offline reconciliation checks: no network, broker auth, or database writes."""
 import unittest
+from datetime import datetime, timedelta, timezone
 from options_reconciliation import assess_snapshot
 
 INTENT = dict(client_order_id='order-1', account_id='acct', environment='paper',
@@ -8,7 +9,8 @@ INTENT = dict(client_order_id='order-1', account_id='acct', environment='paper',
 SNAPSHOT = {**{k: INTENT[k] for k in
                ('client_order_id', 'account_id', 'environment',
                 'contract_symbol', 'side', 'quantity')},
-            'broker_order_id': 'broker-1', 'status': 'filled'}
+            'broker_order_id': 'broker-1', 'status': 'filled',
+            'observed_at': datetime.now(timezone.utc).isoformat()}
 
 
 class ReconciliationTests(unittest.TestCase):
@@ -24,6 +26,23 @@ class ReconciliationTests(unittest.TestCase):
                 result = assess_snapshot(INTENT, {**SNAPSHOT, 'status': status})
                 self.assertEqual(result['status'], 'REVIEW_REQUIRED')
                 self.assertFalse(result['database_write_authorized'])
+
+    def test_missing_stale_future_or_naive_observations_fail_closed(self):
+        clock = datetime(2026, 11, 10, 20, 0, tzinfo=timezone.utc)
+        for observed in (None, 'not-a-date',
+                         (clock - timedelta(minutes=6)).isoformat(),
+                         (clock + timedelta(minutes=1)).isoformat(),
+                         clock.replace(tzinfo=None).isoformat()):
+            with self.subTest(observed=observed):
+                result = assess_snapshot(INTENT,
+                                         {**SNAPSHOT, 'observed_at': observed},
+                                         now=clock)
+                self.assertEqual(result['status'], 'UNRESOLVED')
+                self.assertFalse(result['database_write_authorized'])
+        valid = assess_snapshot(INTENT,
+                                {**SNAPSHOT, 'observed_at': clock.isoformat()},
+                                now=clock)
+        self.assertEqual(valid['status'], 'REVIEW_REQUIRED')
 
     def test_identity_mismatch_fails_closed(self):
         for key, wrong in (('client_order_id', 'other'),
