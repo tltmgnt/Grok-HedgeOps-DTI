@@ -2,7 +2,7 @@
 import unittest
 from datetime import date, timedelta
 
-from options_workflow import plan
+from options_workflow import plan, verify_standard_contract
 
 EXPIRY = (date.today() + timedelta(days=90)).isoformat()
 
@@ -24,6 +24,33 @@ class OptionsWorkflowTests(unittest.TestCase):
                     self.assertEqual(result['status'], 'VALIDATED_PLAN_ONLY')
                     self.assertFalse(result['broker_order_submitted'])
                     self.assertEqual(result['estimated_premium_usd'], '250.00')
+
+    def test_contract_metadata_match_is_offline_and_not_broker_authenticated(self):
+        p = options('buy_call')
+        contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                    'type': 'call', 'strike_price': '500.00',
+                    'multiplier': '100', 'symbol': 'SPY   270101C00500000'}
+        result = verify_standard_contract(p, contract)
+        self.assertTrue(result['contract_matches_plan'])
+        self.assertFalse(result['broker_source_authenticated'])
+        self.assertFalse(result['broker_order_submitted'])
+
+    def test_contract_metadata_mismatch_or_adjustment_fails_closed(self):
+        p = options('buy_put')
+        contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                    'type': 'put', 'strike_price': '500.00',
+                    'multiplier': '100', 'symbol': 'SPY   270101P00500000'}
+        for field, invalid in (
+            ('underlying_symbol', 'AAPL'), ('expiration_date', '2030-01-01'),
+            ('type', 'call'), ('strike_price', '501.00'),
+            ('multiplier', '10'), ('multiplier', 'NaN'),
+            ('symbol', ''),
+        ):
+            with self.subTest(field=field, invalid=invalid):
+                with self.assertRaises(ValueError):
+                    verify_standard_contract(p, {**contract, field: invalid})
+        with self.assertRaises(ValueError):
+            verify_standard_contract(p, {})
 
     def test_contract_multiplier_is_explicitly_unverified(self):
         for action, extra in (
