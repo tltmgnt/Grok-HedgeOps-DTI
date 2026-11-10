@@ -98,7 +98,7 @@ BEGIN
 END $$;
 -- Older tables may predate the state check. Validate their rows before
 -- accepting any broker activity, rather than trusting an unconstrained state.
-DO $
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
@@ -110,7 +110,7 @@ BEGIN
             state IN ('ATTEMPT_RESERVED', 'BROKER_UNCONFIRMED', 'BROKER_CONFIRMED')
         );
     END IF;
-END $;
+END $$;
 -- Protect confirmed evidence against direct SQL updates and other writers.
 CREATE OR REPLACE FUNCTION paper_order_ledger_guard_confirmed()
 RETURNS trigger LANGUAGE plpgsql AS $guard$
