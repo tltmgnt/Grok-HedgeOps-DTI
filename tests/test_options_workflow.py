@@ -35,6 +35,21 @@ class OptionsWorkflowTests(unittest.TestCase):
         self.assertFalse(result['broker_source_authenticated'])
         self.assertFalse(result['broker_order_submitted'])
 
+    def test_short_option_contract_matching_requires_trusted_evidence(self):
+        yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
+        for action, extra, right in (
+            ('covered_call', {'position_verified': True}, 'C'),
+            ('cash_secured_put', {'collateral_verified': True}, 'P'),
+        ):
+            with self.subTest(action=action):
+                p = options(action, **extra)
+                contract = {'underlying_symbol': 'SPY', 'expiration_date': EXPIRY,
+                            'type': 'call' if right == 'C' else 'put',
+                            'strike_price': '500.00', 'multiplier': '100',
+                            'symbol': 'SPY   ' + yymmdd + right + '00500000'}
+                with self.assertRaisesRegex(ValueError, 'trusted collateral or position'):
+                    verify_standard_contract(p, contract)
+
     def test_contract_verification_rejects_tampered_plan_fields(self):
         p = options('buy_call')
         yymmdd = EXPIRY[2:4] + EXPIRY[5:7] + EXPIRY[8:10]
