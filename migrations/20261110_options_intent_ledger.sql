@@ -109,6 +109,12 @@ CREATE TRIGGER options_intent_audit_trigger
     AFTER INSERT OR UPDATE ON options_order_intents
     FOR EACH ROW EXECUTE FUNCTION options_intent_audit();
 
+-- Do not allow callers to invoke helper trigger functions directly.
+-- Trigger execution is not dependent on PUBLIC EXECUTE grants.
+REVOKE ALL ON FUNCTION options_order_events_no_mutation() FROM PUBLIC;
+REVOKE ALL ON FUNCTION options_intent_guard() FROM PUBLIC;
+REVOKE ALL ON FUNCTION options_intent_audit() FROM PUBLIC;
+
 -- A runtime connection must not be able to forge audit records or change
 -- ledger state with unrestricted table writes. This migration intentionally
 -- grants no privileges; operators must provision a separate least-privilege
