@@ -34,6 +34,13 @@ def plan(action, mode, symbol, expiration, strike, contracts, limit_price,
         raise ValueError('Invalid expiry, strike, or limit price') from exc
     if expiry < date.today() or not s.is_finite() or not p.is_finite():
         raise ValueError('Expired contract or non-finite price')
+    # OCC option symbols encode only a two-digit expiration year. Restrict
+    # the planner horizon so a century-different date cannot alias the same
+    # encoded symbol, and reject implausibly distant manual expirations.
+    if (expiry.year - date.today().year > 5
+            or (expiry.year - date.today().year == 5
+                and (expiry.month, expiry.day) > (date.today().month, date.today().day))):
+        raise ValueError('Expiration exceeds five-year planner horizon')
     # Bound the manual input to avoid nonsensical exposure estimates and
     # oversized Decimal arithmetic. These are planner limits, not a claim
     # about broker-supported contracts or executable prices.
