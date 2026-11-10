@@ -87,8 +87,9 @@ BEGIN
     RETURN NEW;
 END
 $guard$;
-DROP TRIGGER IF EXISTS paper_order_ledger_confirmed_guard ON paper_order_ledger;
-CREATE TRIGGER paper_order_ledger_confirmed_guard
+-- Replace atomically: dropping then recreating leaves a window without
+-- protection and can race with another runner initializing the ledger.
+CREATE OR REPLACE TRIGGER paper_order_ledger_confirmed_guard
 BEFORE UPDATE ON paper_order_ledger
 FOR EACH ROW EXECUTE FUNCTION paper_order_ledger_guard_confirmed();
 DO $$
