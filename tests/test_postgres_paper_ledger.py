@@ -151,6 +151,24 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_database_rejects_inverted_timestamps_on_insert(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-timestamp-order'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    """INSERT INTO paper_order_ledger
+                       (request_id, symbol, notional_usd, state, created_at, updated_at)
+                       VALUES (%s, 'SPY', 25, 'ATTEMPT_RESERVED',
+                               now(), now() - interval '1 day')""",
+                    (rid,))
+            conn.rollback()
+            self.assertIsNone(conn.execute(
+                'SELECT request_id FROM paper_order_ledger WHERE request_id=%s',
+                (rid,)).fetchone())
+
     def test_update_audit_timestamp_cannot_be_backdated(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
