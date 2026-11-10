@@ -151,6 +151,28 @@ class PostgresConcurrencyTests(unittest.TestCase):
             self.assertEqual(row, ('BROKER_CONFIRMED', 'reconciled-123'))
             conn.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (rid,))
 
+    def test_blank_order_identity_rejected_by_application_and_database(self):
+        import psycopg
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        rid = RID + '-blank-identity'
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            ledger = PostgresPaperLedger(conn)
+            for request_id, symbol in (('   ', 'SPY'), (rid, '   ')):
+                with self.subTest(request_id=request_id, symbol=symbol):
+                    with self.assertRaisesRegex(LedgerError, 'request ID or symbol'):
+                        ledger.reserve(request_id, symbol, Decimal('25'))
+                    with self.assertRaises(psycopg.errors.CheckViolation):
+                        conn.execute(
+                            """INSERT INTO paper_order_ledger
+                               (request_id, symbol, notional_usd, state)
+                               VALUES (%s, %s, 25, 'ATTEMPT_RESERVED')""",
+                            (request_id, symbol))
+                    conn.rollback()
+            self.assertIsNone(conn.execute(
+                'SELECT request_id FROM paper_order_ledger WHERE request_id=%s',
+                (rid,)).fetchone())
+
     def test_database_rejects_nan_notional_even_from_direct_sql(self):
         import psycopg
         dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
