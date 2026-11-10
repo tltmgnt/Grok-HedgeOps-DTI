@@ -39,12 +39,19 @@ class PostgresPaperLedger:
             cur.execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (request_id,))
             acquired = cur.fetchone()[0]
         if not acquired:
+            self.connection.rollback()
             raise LedgerError('Another runner owns this request ID; reconcile later')
         try:
             yield
         finally:
+            # A failed statement aborts the current transaction, but the
+            # session advisory lock remains held. Roll back before unlocking.
+            self.connection.rollback()
             with self.connection.cursor() as cur:
                 cur.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (request_id,))
+                if cur.fetchone()[0] is not True:
+                    raise LedgerError('Lost PostgreSQL advisory lock ownership')
+            self.connection.commit()
 
     def reserve(self, request_id, symbol, amount):
         """Return True only for a newly committed intent; never reset old rows."""
