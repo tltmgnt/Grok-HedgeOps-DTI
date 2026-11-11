@@ -1,7 +1,6 @@
 """Safety regression tests for opt-in PAPER entry regime control."""
 import json
 import hashlib
-import hmac
 import os
 from pathlib import Path
 import tempfile
@@ -10,6 +9,13 @@ from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
 from paper_regime_controls import entry_block_reason, _approval_message
+
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+except ImportError:
+    Ed25519PrivateKey = None
+    serialization = None
 from market_regime_validation import classify
 
 
@@ -37,17 +43,25 @@ class RegimeEntryControlTests(unittest.TestCase):
             "PAPER_REGIME_EVIDENCE_FILE": str(self.path),
             "PAPER_REGIME_APPROVED_SHA256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
             "PAPER_REGIME_APPROVAL_EXPIRES_AT": (self.now + timedelta(hours=2)).isoformat(),
-            "PAPER_REGIME_APPROVAL_HMAC_KEY": "a1" * 32,  # synthetic-only test key
         }
-        self.sign(self.env)
+        if Ed25519PrivateKey is not None:
+            # Deterministic test-only private key: NEVER use for real approvals.
+            self.private = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("a1" * 32))
+            key = self.private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            self.env["PAPER_REGIME_APPROVAL_PUBLIC_KEY"] = key.hex()
+            self.env["PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256"] = hashlib.sha256(key).hexdigest()
+            self.sign(self.env)
 
     def sign(self, env):
-        env["PAPER_REGIME_APPROVAL_HMAC_SHA256"] = hmac.new(
-            bytes.fromhex(env["PAPER_REGIME_APPROVAL_HMAC_KEY"]),
+        if Ed25519PrivateKey is None:
+            return
+        env["PAPER_REGIME_APPROVAL_SIGNATURE"] = self.private.sign(
             _approval_message(env["PAPER_REGIME_APPROVED_SHA256"],
-                              env["PAPER_REGIME_APPROVAL_EXPIRES_AT"]),
-            hashlib.sha256,
-        ).hexdigest()
+                              env["PAPER_REGIME_APPROVAL_EXPIRES_AT"])
+        ).hex()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -55,6 +69,7 @@ class RegimeEntryControlTests(unittest.TestCase):
     def test_disabled_preserves_preexisting_behavior(self):
         self.assertIsNone(entry_block_reason(now=self.now, environ={}))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_verified_bull_only_continues_existing_gates(self):
         self.assertIsNone(entry_block_reason(now=self.now, environ=self.env))
 
@@ -96,18 +111,20 @@ class RegimeEntryControlTests(unittest.TestCase):
         self.sign(env)
         self.assertIn("not verified BULL", entry_block_reason(now=self.now, environ=env))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_authenticated_approval_is_required_even_with_correct_digest(self):
-        for name in ("PAPER_REGIME_APPROVAL_HMAC_KEY", "PAPER_REGIME_APPROVAL_HMAC_SHA256"):
+        for name in ("PAPER_REGIME_APPROVAL_PUBLIC_KEY", "PAPER_REGIME_APPROVAL_SIGNATURE", "PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256"):
             with self.subTest(name=name):
                 env = dict(self.env)
                 env.pop(name)
                 self.assertIn("authenticated approval",
                               entry_block_reason(now=self.now, environ=env))
         env = dict(self.env)
-        env["PAPER_REGIME_APPROVAL_HMAC_SHA256"] = "0" * 64
+        env["PAPER_REGIME_APPROVAL_SIGNATURE"] = "0" * 128
         self.assertIn("authenticated approval",
                       entry_block_reason(now=self.now, environ=env))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_approval_is_bound_to_digest_and_expiry(self):
         altered = dict(self.env)
         altered["PAPER_REGIME_APPROVED_SHA256"] = "0" * 64
@@ -117,6 +134,25 @@ class RegimeEntryControlTests(unittest.TestCase):
         altered["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now + timedelta(hours=1)).isoformat()
         self.assertIn("authenticated approval",
                       entry_block_reason(now=self.now, environ=altered))
+
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
+    def test_wrong_public_key_and_signature_never_authorize(self):
+        changed = dict(self.env)
+        changed["PAPER_REGIME_APPROVAL_PUBLIC_KEY"] = "ff" * 32
+        self.assertIn("authenticated approval", entry_block_reason(now=self.now, environ=changed))
+        changed = dict(self.env)
+        changed["PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256"] = hashlib.sha256(
+            bytes.fromhex("ff" * 32)).hexdigest()
+        self.assertIn("authenticated approval", entry_block_reason(now=self.now, environ=changed))
+
+    def test_legacy_shared_secret_cannot_authorize(self):
+        env = dict(self.env)
+        for field in ("PAPER_REGIME_APPROVAL_PUBLIC_KEY", "PAPER_REGIME_APPROVAL_SIGNATURE",
+                      "PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256"):
+            env.pop(field, None)
+        env["PAPER_REGIME_APPROVAL_HMAC_KEY"] = "a1" * 32
+        env["PAPER_REGIME_APPROVAL_HMAC_SHA256"] = "0" * 64
+        self.assertIn("authenticated approval", entry_block_reason(now=self.now, environ=env))
 
     def test_missing_approval_and_evidence_hold(self):
         for key in ("PAPER_REGIME_REVIEW_APPROVED", "PAPER_REGIME_EVIDENCE_FILE"):
