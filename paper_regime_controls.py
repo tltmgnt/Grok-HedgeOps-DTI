@@ -19,6 +19,38 @@ from market_regime_validation import classify, timestamp
 MAX_ENTRY_OBSERVATION_AGE = timedelta(hours=36)
 MAX_APPROVAL_WINDOW = timedelta(hours=24)
 
+# Domain separation and version pinning prevent reusing approvals for another
+# operation or a future policy revision. The signing key is never in git.
+APPROVAL_CONTEXT = b"HEDGEOPS:PAPER:REGIME_ENTRY:v1\\n"
+APPROVAL_POLICY = "regime-prototype-v1"
+
+
+def _approval_message(digest, expires_at):
+    # ASCII-only digest and an exact timestamp string. The latter is checked
+    # for a timezone below; changes to it invalidate the authenticator.
+    return (APPROVAL_CONTEXT +
+            (APPROVAL_POLICY + "\\n" + digest + "\\n" + expires_at).encode("ascii"))
+
+
+def _verify_approval(env, digest, expires_at):
+    """Verify an out-of-band HMAC approval; never sign inside the trading path."""
+    key_hex = env.get("PAPER_REGIME_APPROVAL_HMAC_KEY", "")
+    signature = env.get("PAPER_REGIME_APPROVAL_HMAC_SHA256", "")
+    if (not isinstance(key_hex, str) or
+            not re.fullmatch(r"[0-9a-f]{64,128}", key_hex) or
+            len(key_hex) % 2 or
+            not isinstance(signature, str) or
+            not re.fullmatch(r"[0-9a-f]{64}", signature)):
+        return False
+    try:
+        expected = hmac.new(bytes.fromhex(key_hex),
+                            _approval_message(digest, expires_at),
+                            hashlib.sha256).hexdigest()
+    except (ValueError, UnicodeEncodeError):
+        return False
+    return hmac.compare_digest(expected, signature)
+
+
 
 def entry_block_reason(*, now=None, environ=None):
     """Return None only for approved, independently reviewed bull evidence.
@@ -40,6 +72,8 @@ def entry_block_reason(*, now=None, environ=None):
         return "Regime gate: approved evidence digest missing"
     if not approval_expires:
         return "Regime gate: review expiry missing"
+    if not _verify_approval(env, expected_digest, approval_expires):
+        return "Regime gate: authenticated approval missing or invalid"
     now = datetime.now(timezone.utc) if now is None else now
     if now.tzinfo is None or now.utcoffset() is None:
         return "Regime gate: invalid clock"
