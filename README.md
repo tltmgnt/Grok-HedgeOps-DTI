@@ -125,6 +125,14 @@ its absence is explicitly labeled as deterministic mode, never as AI analysis.
 
 Dependency inputs and generated hash locks are described in [the maintenance policy](requirements-policy.md). CI uses `requirements-dev.txt`; production uses `requirements.txt`.
 
+## Bull / neutral / bear market research decisions
+
+See the [regime decision table](docs/MARKET_REGIME_DECISION_TABLE.md)
+and its deterministic, non-executing [advisory policy](market_regime_policy.py).
+The policy defaults to UNKNOWN/HOLD without verified evidence; it grants no
+order authority, has no broker integration, and does not change existing
+trading controls. Performance across regimes remains unvalidated.
+
 ## ResearchOS / TECT concept integration
 
 The [stock-news topology shadow module](docs/NEWS_TOPOLOGY.md) separately records
