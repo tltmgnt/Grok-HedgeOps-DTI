@@ -129,5 +129,69 @@ class PostgresConcurrencyTests(unittest.TestCase):
                 cleanup.execute('DELETE FROM paper_order_ledger WHERE request_id=%s', (RID,))
 
 
+@unittest.skipUnless(os.getenv('TEST_PAPER_LEDGER_DATABASE_URL'),
+                      'requires disposable PostgreSQL test database')
+class AutonomousPaperLedgerIntegrationTests(unittest.TestCase):
+    def test_entry_commits_before_post_and_never_reposts_on_restart(self):
+        import psycopg
+        from unittest.mock import patch
+        from uuid import uuid4
+        from paper_opportunity_intelligence import submit_durable_paper_order
+
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        request_id = 'ho-e2e-' + uuid4().hex
+        with psycopg.connect(dsn) as setup:
+            setup.execute(DDL)
+        posts = []
+        def fake_broker(host, path, key, secret, *, params=None, payload=None):
+            if path == '/v2/orders:by_client_order_id':
+                if posts:
+                    return dict(posts[0])
+                raise RuntimeError('Alpaca HTTP 404')
+            if path == '/v2/account':
+                return {'status': 'ACTIVE', 'trading_blocked': False,
+                        'account_blocked': False, 'cash': '1000', 'buying_power': '1000'}
+            if path == '/v2/assets/SPY':
+                return {'status': 'active', 'tradable': True, 'fractionable': True}
+            if path == '/v2/orders' and payload is not None:
+                with psycopg.connect(dsn) as db:
+                    state = db.execute(
+                        'SELECT state FROM paper_order_ledger WHERE request_id=%s',
+                        (request_id,)).fetchone()[0]
+                self.assertEqual(state, 'ATTEMPT_RESERVED')
+                response = {'id': 'synthetic-broker-1', 'status': 'accepted',
+                            'symbol': 'SPY', 'side': 'buy', 'notional': '10.00',
+                            'client_order_id': request_id}
+                posts.append(response)
+                return response
+            self.fail('Unexpected broker path: ' + path)
+        original_connect = psycopg.connect
+        def local_connect(*args, **kwargs):
+            # Test service does not use TLS; production helper demands TLS.
+            kwargs.pop('sslmode', None)
+            return original_connect(*args, **kwargs)
+        try:
+            with patch.dict(os.environ, {'PAPER_LEDGER_DATABASE_URL': dsn}):
+                with patch('psycopg.connect', side_effect=local_connect):
+                    first = submit_durable_paper_order(
+                        symbol='SPY', notional=Decimal('10'), request_id=request_id,
+                        key='test', secret='test', get=fake_broker)
+                    second = submit_durable_paper_order(
+                        symbol='SPY', notional=Decimal('10'), request_id=request_id,
+                        key='test', secret='test', get=fake_broker)
+            self.assertEqual(first['broker_order_id'], 'synthetic-broker-1')
+            self.assertTrue(second['reconciled_existing_order'])
+            self.assertEqual(len(posts), 1)
+            with psycopg.connect(dsn) as db:
+                state = db.execute(
+                    'SELECT state FROM paper_order_ledger WHERE request_id=%s',
+                    (request_id,)).fetchone()[0]
+                self.assertEqual(state, 'BROKER_CONFIRMED')
+        finally:
+            with psycopg.connect(dsn) as cleanup:
+                cleanup.execute('DELETE FROM paper_order_ledger WHERE request_id=%s',
+                                (request_id,))
+
+
 if __name__ == '__main__':
     unittest.main()
