@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: scheduled-evidence-gates-${{ github.event.schedule || 'manual' }}
   cancel-in-progress: false
@@ -23,10 +24,21 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+      - name: Import recent verified offline evidence when private bundle is absent
+        env:
+          ASSURANCE_EVIDENCE_BUNDLE_JSON: ${{ secrets.ASSURANCE_EVIDENCE_BUNDLE_JSON }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$ASSURANCE_EVIDENCE_BUNDLE_JSON" ]; then
+            python -m scripts.collect_hourly_assurance_input --output "$RUNNER_TEMP/hourly-assurance-input.json"
+          else
+            echo "Using configured private assurance bundle."
+          fi
       - name: Validate private gate evidence and publish redacted status
         env:
           ASSURANCE_EVIDENCE_BUNDLE_JSON: ${{ secrets.ASSURANCE_EVIDENCE_BUNDLE_JSON }}
           ASSURANCE_CRON: ${{ github.event.schedule }}
+          ASSURANCE_EVIDENCE_BUNDLE_FILE: ${{ runner.temp }}/hourly-assurance-input.json
           PYTHONNOUSERSITE: '1'
           PYTHONDONTWRITEBYTECODE: '1'
         run: python scheduled_assurance.py
