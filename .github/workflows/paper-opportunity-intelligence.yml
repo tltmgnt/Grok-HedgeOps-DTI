@@ -50,6 +50,32 @@ jobs:
         run: python -m pip install --only-binary=:all: 'psycopg[binary]==3.2.12' 'cryptography==50.0.2'
       - name: Validate experiment before broker access
         run: python -m pytest tests/ -q
+      - name: Stage protected regime evidence for explicitly authorized manual PAPER run
+        if: github.event_name == 'workflow_dispatch' && inputs.monitor_only == false
+        env:
+          PAPER_REGIME_EVIDENCE_JSON_B64: ${{ secrets.PAPER_REGIME_EVIDENCE_JSON_B64 }}
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          import sys
+
+          encoded = os.environ.get("PAPER_REGIME_EVIDENCE_JSON_B64", "")
+          if not encoded:
+              sys.exit("Protected, signed PAPER regime evidence missing")
+          try:
+              raw = base64.b64decode(encoded, validate=True)
+          except ValueError:
+              sys.exit("Invalid protected regime evidence encoding")
+          if not 1 <= len(raw) <= 16384:
+              sys.exit("Invalid protected regime evidence size")
+          destination = Path(os.environ["RUNNER_TEMP"]) / "paper-regime-evidence.json"
+          destination.write_bytes(raw)
+          destination.chmod(0o600)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("PAPER_REGIME_EVIDENCE_FILE=" + str(destination) + "\n")
+          PY
       - name: Run paper research agent
         env:
           # Dedicated paper environment secrets used by the existing manual workflow.
@@ -62,7 +88,6 @@ jobs:
           PAPER_BROKER_EXECUTION_APPROVED: ${{ vars.PAPER_BROKER_EXECUTION_APPROVED || 'false' }}
           PAPER_REGIME_CONTROL_ENABLED: ${{ vars.PAPER_REGIME_CONTROL_ENABLED || 'true' }}
           PAPER_REGIME_REVIEW_APPROVED: ${{ vars.PAPER_REGIME_REVIEW_APPROVED || 'false' }}
-          PAPER_REGIME_EVIDENCE_FILE: ${{ vars.PAPER_REGIME_EVIDENCE_FILE }}
           PAPER_REGIME_APPROVED_SHA256: ${{ vars.PAPER_REGIME_APPROVED_SHA256 }}
           PAPER_REGIME_APPROVAL_EXPIRES_AT: ${{ vars.PAPER_REGIME_APPROVAL_EXPIRES_AT }}
           PAPER_REGIME_APPROVAL_PUBLIC_KEY: ${{ vars.PAPER_REGIME_APPROVAL_PUBLIC_KEY }}
