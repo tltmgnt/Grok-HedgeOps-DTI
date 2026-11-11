@@ -1,5 +1,6 @@
 """Safety regression tests for opt-in PAPER entry regime control."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -33,6 +34,8 @@ class RegimeEntryControlTests(unittest.TestCase):
             "PAPER_REGIME_CONTROL_ENABLED": "true",
             "PAPER_REGIME_REVIEW_APPROVED": "true",
             "PAPER_REGIME_EVIDENCE_FILE": str(self.path),
+            "PAPER_REGIME_APPROVED_SHA256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
+            "PAPER_REGIME_APPROVAL_EXPIRES_AT": (self.now + timedelta(hours=2)).isoformat(),
         }
 
     def tearDown(self):
@@ -43,6 +46,40 @@ class RegimeEntryControlTests(unittest.TestCase):
 
     def test_verified_bull_only_continues_existing_gates(self):
         self.assertIsNone(entry_block_reason(now=self.now, environ=self.env))
+
+    def test_modified_evidence_is_rejected_even_when_label_is_bull(self):
+        self.path.write_text(json.dumps(sample(self.now), sort_keys=True))
+        self.assertIn("digest", entry_block_reason(now=self.now, environ=self.env))
+
+    def test_digest_and_expiry_are_both_required(self):
+        for key in ("PAPER_REGIME_APPROVED_SHA256", "PAPER_REGIME_APPROVAL_EXPIRES_AT"):
+            with self.subTest(key=key):
+                env = dict(self.env)
+                env.pop(key)
+                self.assertIsNotNone(entry_block_reason(now=self.now, environ=env))
+        expired = dict(self.env)
+        expired["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now - timedelta(minutes=1)).isoformat()
+        self.assertIn("expired", entry_block_reason(now=self.now, environ=expired))
+        too_far = dict(self.env)
+        too_far["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now + timedelta(days=2)).isoformat()
+        self.assertIn("window", entry_block_reason(now=self.now, environ=too_far))
+
+    def test_stale_evidence_is_rejected_even_with_matching_digest(self):
+        row = sample(self.now)
+        row["observed_at"] = (self.now - timedelta(days=2)).isoformat()
+        row["decision_at"] = (self.now - timedelta(days=2, minutes=-10)).isoformat()
+        self.path.write_text(json.dumps(row))
+        env = dict(self.env)
+        env["PAPER_REGIME_APPROVED_SHA256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.assertIn("stale", entry_block_reason(now=self.now, environ=env))
+
+    def test_changed_bear_evidence_with_matching_digest_is_still_blocked(self):
+        row = sample(self.now)
+        row.update({"trend_pct": -4, "breadth_fraction": 0.2})
+        self.path.write_text(json.dumps(row))
+        env = dict(self.env)
+        env["PAPER_REGIME_APPROVED_SHA256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.assertIn("not verified BULL", entry_block_reason(now=self.now, environ=env))
 
     def test_missing_approval_and_evidence_hold(self):
         for key in ("PAPER_REGIME_REVIEW_APPROVED", "PAPER_REGIME_EVIDENCE_FILE"):
