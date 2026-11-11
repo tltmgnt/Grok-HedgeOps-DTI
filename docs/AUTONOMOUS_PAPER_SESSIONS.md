@@ -64,13 +64,19 @@ Until independent risk, statistical, source, and key-management review,
 **do not activate any new broker entry**. A BULL label never authorizes
 trading by itself. The signing private key must not be available to the runner.
 
-The PostgreSQL `paper_order_ledger` table must be provisioned by an
-authorized DB migration operator **before** manual dispatch; the runner
-does not create its own database schema. Use a restricted DB role and
-TLS, with independently administered secret access. The actual automatic
-broker POST flows through `PostgresPaperLedger` and `submit_with_ledger`:
-commit the attempt first; on retry/restart, reconcile the same client order
-ID only. A broker 404 does not make a reserved intent safe to POST again.
+The PostgreSQL `paper_order_ledger` AND `paper_exit_ledger` tables must
+be provisioned by an authorized database migration operator using
+[`migrations/20261110_paper_broker_intent_ledger.sql`](../migrations/20261110_paper_broker_intent_ledger.sql)
+**before** manual dispatch. The runner does not create database schemas. Use a restricted DB role and
+TLS, with independently administered secret access. Automatic PAPER **buys** flow through `PostgresPaperLedger` and
+`submit_with_ledger`, while strategy **sells** flow through the separate
+`PostgresPaperExitLedger` and `submit_exit_with_ledger`.
+Both commit an immutable client order intent **before** broker POST; on
+retry/restart an existing intent can only reconcile the same ID.
+A broker 404 does not make a reserved buy or sell intent safe to POST again.
+Unresolved orders must be manually reconciled before any new attempt.
+The runner still records local exit-intent audit events, but those files
+alone are not considered a durable replay safeguard.
 The workflow installs pinned PostgreSQL and Ed25519 verifier drivers.
 Their hashes and dependency graph must be integrated into the repository's
 reproducible dependency locks before operational activation.
@@ -108,8 +114,10 @@ All opportunity order workflows share a concurrency group to reduce this risk.
   thresholds or broker-native protective stops. Gaps and outages can exceed them.
 - Exit only an exact unmixed long lot proven by a fully filled strategy buy and
   complete broker order history. Unknown/manual holdings are left for review.
-- Pending orders block entries; deterministic IDs prevent duplicate entries and
-  exits. POSTs are never retried after timeouts. Exit intents are written before POST.
+- Pending orders block entries; deterministic IDs and PostgreSQL reservations
+  prevent a second POST of previously reserved entry or exit intents.
+  POSTs are never retried after timeouts. Exit intents are written to a
+  persistent ledger and the local audit before POST.
 - Rejected/ambiguous orders require broker inspection. A stable failed exit ID is
   not replaced automatically with a new sell ID.
 - A no-trade day is a valid outcome. Missing credentials, malformed history,
