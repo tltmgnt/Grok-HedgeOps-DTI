@@ -12,13 +12,14 @@ import os
 import re
 import sys
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 _SYMBOL = re.compile(r"^[A-Z][A-Z0-9.]{0,14}$")
 CONFIRMATION = "I AUTHORIZE LIVE BUY"
 
 
-def _request(base: str, path: str, key: str, secret: str, *, payload=None):
+def _request(base: str, path: str, key: str, secret: str, *, payload=None, allow_not_found=False):
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = Request(base + path, data=body, headers={
         "APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret,
@@ -28,6 +29,8 @@ def _request(base: str, path: str, key: str, secret: str, *, payload=None):
         with urlopen(request, timeout=15) as response:  # nosec B310 - fixed HTTPS Alpaca host, validated path
             return json.load(response)
     except HTTPError as exc:
+        if allow_not_found and exc.code == 404:
+            return None
         # Never print raw broker response, which may contain sensitive data.
         raise RuntimeError(f"Broker rejected request (HTTP {exc.code})") from None
     except (URLError, TimeoutError) as exc:
@@ -71,8 +74,20 @@ def purchase_alpaca(symbol: str, notional: float, *, mode: str,
     if asset.get("fractionable") is not True:
         raise PermissionError("instrument does not support fractional notional purchases")
 
-    # Never retry an ambiguous POST automatically. client_order_id supports
-    # broker-side duplicate detection if a workflow is re-run.
+    # Preflight against broker state before any new submission. A failed lookup
+    # is ambiguous and must prevent an order; only a confirmed 404 may proceed.
+    existing = _request(
+        base, "/v2/orders:by_client_order_id?client_order_id=" + quote(request_id, safe=""),
+        key, secret, allow_not_found=True,
+    )
+    if existing is not None:
+        raise PermissionError(
+            "client_order_id already exists at broker; reconcile the existing order, do not resubmit"
+        )
+
+    # A preflight lookup is not an atomic reservation: concurrent workflows
+    # still require external serialization and durable intent persistence.
+    # Never retry an ambiguous POST automatically.
     order = _request(base, "/v2/orders", key, secret, payload={
         "symbol": symbol, "notional": f"{notional:.2f}", "side": "buy",
         "type": "market", "time_in_force": "day",
