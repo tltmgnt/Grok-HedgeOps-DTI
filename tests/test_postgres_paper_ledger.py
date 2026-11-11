@@ -191,6 +191,59 @@ class AutonomousPaperLedgerIntegrationTests(unittest.TestCase):
             with psycopg.connect(dsn) as cleanup:
                 cleanup.execute('DELETE FROM paper_order_ledger WHERE request_id=%s',
                                 (request_id,))
+ 
+    def test_exit_committed_before_sell_and_restart_never_sells_twice(self):
+        import psycopg
+        from unittest.mock import patch
+        from uuid import uuid4
+        from autonomous_paper_session import submit_durable_paper_exit
+
+        dsn = os.environ['TEST_PAPER_LEDGER_DATABASE_URL']
+        request_id = 'ho-exit-' + uuid4().hex[:24]
+        payload = {'symbol': 'SPY', 'qty': '1', 'side': 'sell', 'type': 'market',
+                   'time_in_force': 'day', 'client_order_id': request_id}
+        with psycopg.connect(dsn) as setup:
+            setup.execute(DDL)
+        posts = []
+        def fake_broker(host, path, key, secret, *, params=None, payload=None):
+            if path == '/v2/orders:by_client_order_id':
+                if posts:
+                    return dict(posts[0])
+                raise RuntimeError('Alpaca HTTP 404')
+            if path == '/v2/orders' and payload is not None:
+                with psycopg.connect(dsn) as db:
+                    state = db.execute(
+                        'SELECT state FROM paper_exit_ledger WHERE request_id=%s',
+                        (request_id,)).fetchone()[0]
+                self.assertEqual(state, 'ATTEMPT_RESERVED')
+                response = dict(payload, id='synthetic-exit-1', status='accepted')
+                posts.append(response)
+                return response
+            self.fail('Unexpected broker exit route: ' + path)
+        original_connect = psycopg.connect
+        def local_connect(*args, **kwargs):
+            kwargs.pop('sslmode', None)
+            return original_connect(*args, **kwargs)
+        try:
+            with patch.dict(os.environ, {'PAPER_LEDGER_DATABASE_URL': dsn}):
+                with patch('psycopg.connect', side_effect=local_connect):
+                    first = submit_durable_paper_exit(
+                        payload, key='test', secret='test', get=fake_broker)
+                    second = submit_durable_paper_exit(
+                        payload, key='test', secret='test', get=fake_broker)
+            self.assertEqual(first['id'], second['id'])
+            self.assertEqual(len(posts), 1)
+            with psycopg.connect(dsn) as db:
+                state = db.execute(
+                    'SELECT state FROM paper_exit_ledger WHERE request_id=%s',
+                    (request_id,)).fetchone()[0]
+                self.assertEqual(state, 'BROKER_CONFIRMED')
+        finally:
+            with psycopg.connect(dsn) as cleanup:
+                cleanup.execute('DELETE FROM paper_exit_ledger WHERE request_id=%s',
+                                (request_id,))
+
+
 
 
 if __name__ == '__main__':
