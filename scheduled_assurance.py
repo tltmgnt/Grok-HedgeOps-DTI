@@ -65,6 +65,12 @@ def main():
         report, code = {'status': 'UNSUPPORTED_TRIGGER', 'execution_authorized': False}, 1
     else:
         raw = os.getenv('ASSURANCE_EVIDENCE_BUNDLE_JSON', '')
+        # Use an imported offline bundle only when no private bundle is supplied.
+        if not raw and os.getenv('ASSURANCE_EVIDENCE_BUNDLE_FILE'):
+            try:
+                raw = Path(os.environ['ASSURANCE_EVIDENCE_BUNDLE_FILE']).read_text(encoding='utf-8')
+            except OSError:
+                raw = ' '  # Configured but unreadable: fail as invalid, never skip.
         if not raw:
             report = {'cadence': cadence, 'status': 'SKIPPED_NOT_CONFIGURED',
                       'execution_authorized': False, 'certification_issued': False}
