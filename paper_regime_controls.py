@@ -19,6 +19,53 @@ from market_regime_validation import classify, timestamp
 MAX_ENTRY_OBSERVATION_AGE = timedelta(hours=36)
 MAX_APPROVAL_WINDOW = timedelta(hours=24)
 
+# Domain separation and version pinning prevent reusing approvals for another
+# operation or a future policy revision. The signing key is never in git.
+APPROVAL_CONTEXT = b"HEDGEOPS:PAPER:REGIME_ENTRY:v1\n"
+APPROVAL_POLICY = "regime-prototype-v1"
+
+
+def _approval_message(digest, expires_at):
+    # ASCII-only digest and an exact timestamp string. The latter is checked
+    # for a timezone below; changes to it invalidate the authenticator.
+    return (APPROVAL_CONTEXT +
+            (APPROVAL_POLICY + "\n" + digest + "\n" + expires_at).encode("ascii"))
+
+
+def _verify_approval(env, digest, expires_at):
+    """Verify an out-of-band Ed25519 signature using only a public key.
+
+    The signing private key MUST NOT exist in the trading runtime. Missing
+    cryptography support or malformed keys/signatures fail closed.
+    """
+    key_hex = env.get("PAPER_REGIME_APPROVAL_PUBLIC_KEY", "")
+    signature_hex = env.get("PAPER_REGIME_APPROVAL_SIGNATURE", "")
+    pinned_key_id = env.get("PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256", "")
+    if (not isinstance(key_hex, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", key_hex)
+            or not isinstance(signature_hex, str)
+            or not re.fullmatch(r"[0-9a-f]{128}", signature_hex)
+            or not isinstance(pinned_key_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", pinned_key_id)):
+        return False
+    public_key_bytes = bytes.fromhex(key_hex)
+    if not hmac.compare_digest(hashlib.sha256(public_key_bytes).hexdigest(),
+                               pinned_key_id):
+        return False
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError:
+        return False
+    try:
+        Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(
+            bytes.fromhex(signature_hex),
+            _approval_message(digest, expires_at),
+        )
+    except (ValueError, InvalidSignature, UnicodeEncodeError):
+        return False
+    return True
+
 
 def entry_block_reason(*, now=None, environ=None):
     """Return None only for approved, independently reviewed bull evidence.
@@ -40,6 +87,8 @@ def entry_block_reason(*, now=None, environ=None):
         return "Regime gate: approved evidence digest missing"
     if not approval_expires:
         return "Regime gate: review expiry missing"
+    if not _verify_approval(env, expected_digest, approval_expires):
+        return "Regime gate: authenticated approval missing or invalid"
     now = datetime.now(timezone.utc) if now is None else now
     if now.tzinfo is None or now.utcoffset() is None:
         return "Regime gate: invalid clock"

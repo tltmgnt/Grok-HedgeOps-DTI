@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS paper_order_ledger (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS paper_exit_ledger (
+    request_id varchar(48) PRIMARY KEY,
+    symbol varchar(15) NOT NULL,
+    quantity numeric(20,8) NOT NULL CHECK (quantity > 0),
+    state text NOT NULL CHECK (state IN
+        ('ATTEMPT_RESERVED','BROKER_UNCONFIRMED','BROKER_CONFIRMED')),
+    broker_order_id text,
+    broker_status text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
 """
 
 
@@ -110,3 +121,78 @@ def submit_with_ledger(ledger, symbol, amount, request_id, *, key, secret, get):
                       broker_order_id=result['broker_order_id'],
                       broker_status=result['broker_status'])
         return result
+
+
+class PostgresPaperExitLedger(PostgresPaperLedger):
+    """Durable, independent sell-intent ledger; same session-lock semantics."""
+
+    def reserve(self, request_id, symbol, quantity):
+        with self.connection.cursor() as cur:
+            cur.execute(
+                """INSERT INTO paper_exit_ledger (request_id, symbol, quantity, state)
+                   VALUES (%s, %s, %s, 'ATTEMPT_RESERVED')
+                   ON CONFLICT (request_id) DO NOTHING
+                   RETURNING request_id""",
+                (request_id, symbol, quantity),
+            )
+            inserted = cur.fetchone() is not None
+            cur.execute(
+                "SELECT symbol, quantity FROM paper_exit_ledger WHERE request_id=%s",
+                (request_id,),
+            )
+            row = cur.fetchone()
+        if row is None or row[0] != symbol or Decimal(str(row[1])) != quantity:
+            self.connection.rollback()
+            raise LedgerError("Exit ID already bound to a different order")
+        self.connection.commit()  # Durable before broker sell POST.
+        return inserted
+
+    def record(self, request_id, *, confirmed, broker_order_id=None, broker_status=None):
+        state = 'BROKER_CONFIRMED' if confirmed else 'BROKER_UNCONFIRMED'
+        with self.connection.cursor() as cur:
+            cur.execute(
+                """UPDATE paper_exit_ledger SET state=%s, broker_order_id=%s,
+                   broker_status=%s, updated_at=now() WHERE request_id=%s""",
+                (state, broker_order_id, broker_status, request_id),
+            )
+            if cur.rowcount != 1:
+                self.connection.rollback()
+                raise LedgerError("Exit ledger row missing")
+        self.connection.commit()
+
+
+def submit_exit_with_ledger(ledger, payload, *, key, secret, get):
+    """At most one sell POST per persistent exit ID, including after crashes."""
+    from paper_opportunity_intelligence import PAPER, money
+
+    request_id, symbol = payload["client_order_id"], payload["symbol"]
+    quantity = Decimal(str(payload["qty"]))
+    if not quantity.is_finite() or quantity <= 0 or payload.get("side") != "sell":
+        raise LedgerError("Unsafe exit parameters")
+    with ledger.lock(request_id):
+        first_attempt = ledger.reserve(request_id, symbol, quantity)
+        if not first_attempt:
+            # A 404 after a previous reservation is AMBIGUOUS, never approval
+            # to send another sell order. Recovery is read-only.
+            try:
+                order = get(PAPER, "/v2/orders:by_client_order_id", key, secret,
+                            params={"client_order_id": request_id})
+            except (RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                ledger.record(request_id, confirmed=False)
+                raise LedgerError("Prior exit unresolved; manual reconciliation required") from exc
+        else:
+            try:
+                order = get(PAPER, "/v2/orders", key, secret, payload=payload)
+            except (RuntimeError, ValueError, KeyError, TypeError, OSError):
+                ledger.record(request_id, confirmed=False)
+                raise
+        if (not isinstance(order, dict) or not order.get("id")
+                or any(order.get(k) != payload[k]
+                       for k in ("symbol", "side", "client_order_id"))
+                or money(order.get("qty")) != money(payload["qty"])):
+            ledger.record(request_id, confirmed=False)
+            raise LedgerError("Ambiguous exit acknowledgment; reconcile manually")
+        ledger.record(request_id, confirmed=True,
+                      broker_order_id=order["id"],
+                      broker_status=order.get("status"))
+        return order
