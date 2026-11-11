@@ -55,12 +55,14 @@ def _verify_approval(env, digest, expires_at):
     try:
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
+    except ImportError:
+        return False
+    try:
         Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(
             bytes.fromhex(signature_hex),
             _approval_message(digest, expires_at),
         )
-    except (ImportError, ValueError, InvalidSignature, UnicodeEncodeError):
+    except (ValueError, InvalidSignature, UnicodeEncodeError):
         return False
     return True
 
