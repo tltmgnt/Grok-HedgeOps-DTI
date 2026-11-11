@@ -33,23 +33,36 @@ def _approval_message(digest, expires_at):
 
 
 def _verify_approval(env, digest, expires_at):
-    """Verify an out-of-band HMAC approval; never sign inside the trading path."""
-    key_hex = env.get("PAPER_REGIME_APPROVAL_HMAC_KEY", "")
-    signature = env.get("PAPER_REGIME_APPROVAL_HMAC_SHA256", "")
-    if (not isinstance(key_hex, str) or
-            not re.fullmatch(r"[0-9a-f]{64,128}", key_hex) or
-            len(key_hex) % 2 or
-            not isinstance(signature, str) or
-            not re.fullmatch(r"[0-9a-f]{64}", signature)):
+    """Verify an out-of-band Ed25519 signature using only a public key.
+
+    The signing private key MUST NOT exist in the trading runtime. Missing
+    cryptography support or malformed keys/signatures fail closed.
+    """
+    key_hex = env.get("PAPER_REGIME_APPROVAL_PUBLIC_KEY", "")
+    signature_hex = env.get("PAPER_REGIME_APPROVAL_SIGNATURE", "")
+    pinned_key_id = env.get("PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256", "")
+    if (not isinstance(key_hex, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", key_hex)
+            or not isinstance(signature_hex, str)
+            or not re.fullmatch(r"[0-9a-f]{128}", signature_hex)
+            or not isinstance(pinned_key_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", pinned_key_id)):
+        return False
+    public_key_bytes = bytes.fromhex(key_hex)
+    if not hmac.compare_digest(hashlib.sha256(public_key_bytes).hexdigest(),
+                               pinned_key_id):
         return False
     try:
-        expected = hmac.new(bytes.fromhex(key_hex),
-                            _approval_message(digest, expires_at),
-                            hashlib.sha256).hexdigest()
-    except (ValueError, UnicodeEncodeError):
-        return False
-    return hmac.compare_digest(expected, signature)
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+        Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(
+            bytes.fromhex(signature_hex),
+            _approval_message(digest, expires_at),
+        )
+    except (ImportError, ValueError, InvalidSignature, UnicodeEncodeError):
+        return False
+    return True
 
 
 def entry_block_reason(*, now=None, environ=None):
