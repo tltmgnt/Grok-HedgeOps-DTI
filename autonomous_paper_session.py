@@ -107,6 +107,24 @@ def enabled():
             and os.getenv("PAPER_AUTO_KILL_SWITCH") == "false")
 
 
+def submit_durable_paper_exit(payload, *, key, secret, get=request_json):
+    """Only persistent PostgreSQL reservations may reach a PAPER sell POST."""
+    database_url = os.environ.get("PAPER_LEDGER_DATABASE_URL", "")
+    if not database_url:
+        raise RuntimeError("PostgreSQL exit ledger required for autonomous sell")
+    try:
+        import psycopg
+    except ImportError:
+        raise RuntimeError("PostgreSQL exit ledger driver unavailable") from None
+    from postgres_paper_ledger import PostgresPaperExitLedger, submit_exit_with_ledger
+    with psycopg.connect(database_url, connect_timeout=10,
+                         sslmode="require", autocommit=False) as connection:
+        return submit_exit_with_ledger(
+            PostgresPaperExitLedger(connection), payload,
+            key=key, secret=secret, get=get,
+        )
+
+
 def manage_exits(key, secret, *, now, get=request_json, monitor_only=False, audit=None):
     orders = order_history(key, secret, get=get)
     positions = get(PAPER, "/v2/positions", key, secret)
@@ -147,7 +165,10 @@ def manage_exits(key, secret, *, now, get=request_json, monitor_only=False, audi
         payload = {k: v for k, v in plan.items() if k not in ("reason", "observed_return_pct")}
         if audit is not None:
             audit({"intent": payload, "observed_at_utc": datetime.now(timezone.utc).isoformat()})
-        acknowledgment = get(PAPER, "/v2/orders", key, secret, payload=payload)
+        # Persist exit attempt before broker POST. Retry/crash recovery is
+        # broker lookup only; a 404 never permits a second sell POST.
+        acknowledgment = submit_durable_paper_exit(
+            payload, key=key, secret=secret, get=get)
         if (not isinstance(acknowledgment, dict) or not acknowledgment.get("id")
                 or any(acknowledgment.get(k) != payload[k]
                        for k in ("symbol", "side", "client_order_id"))

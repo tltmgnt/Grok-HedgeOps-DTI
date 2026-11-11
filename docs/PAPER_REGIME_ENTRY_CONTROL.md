@@ -27,21 +27,31 @@ This is intentionally **opt-in** to avoid unreviewed operational changes.
 - `PAPER_REGIME_APPROVAL_EXPIRES_AT`: timezone-aware ISO 8601 expiry of the
   approved evidence, at most 24 hours ahead of the current check.
 
-- `PAPER_REGIME_APPROVAL_HMAC_KEY`: protected, randomly generated 32–64 byte
-  key expressed as lowercase hexadecimal; never commit or log it.
-- `PAPER_REGIME_APPROVAL_HMAC_SHA256`: lowercase HMAC-SHA256 of the
-  domain-separated, versioned approval message described below. This
-  authenticator must be issued by a separate reviewed process, never
-  derived dynamically by the execution workflow.
+- `PAPER_REGIME_APPROVAL_PUBLIC_KEY`: reviewer-authorized Ed25519 raw
+  32-byte public key, encoded as 64 lowercase hexadecimal characters.
+- `PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256`: SHA-256 fingerprint of that
+  public key, independently pinned in protected configuration.
+- `PAPER_REGIME_APPROVAL_SIGNATURE`: the reviewer's Ed25519 signature
+  (64 bytes encoded as 128 lowercase hex characters) on the exact scoped
+  approval message below. No signing private key is installed in the trading
+  runtime, and HMAC approvals are **not accepted**.
 
 The signed bytes are the UTF-8/ASCII concatenation of:
 `HEDGEOPS:PAPER:REGIME_ENTRY:v1`, newline,
 `regime-prototype-v1`, newline,
 `PAPER_REGIME_APPROVED_SHA256`, newline,
-`PAPER_REGIME_APPROVAL_EXPIRES_AT` (exact text). Use HMAC-SHA256.
-Changing the policy version, expiration text, or evidence digest invalidates
-the authenticator. Evidence classification is independently re-evaluated at
-each gate check; the HMAC must never substitute for those checks.
+`PAPER_REGIME_APPROVAL_EXPIRES_AT` (exact text). Sign with Ed25519
+**outside the trading runtime**. The verifier uses the vetted Python
+`cryptography` library, and fails closed if it is not installed. Its
+version and hashes must be added to the managed dependency locks before
+operational activation.
+
+A reviewer must control the signing private key independently from the
+trading runner and its repository administrators. The public key and its
+pinned fingerprint must be provisioned by separately trusted operators;
+the runner must not self-select a trusted key or compute a trusted
+fingerprint from its own evidence. Changing policy version, expiry,
+digest, signature or public key invalidates the review.
 
 When the optional gate is active, both the protected digest and expiry are
 **mandatory**. A byte change, missing value, invalid digest, expired approval,
@@ -50,17 +60,15 @@ again immediately before an automatic broker POST. Avoid storing approved
 hashes in public repository files. Restrict who can change protected settings,
 review independent source provenance, and revoke approvals promptly.
 
-**Security limitation:** The SHA-256 pin detects file changes, while
-HMAC-SHA256 checks whether the approval token was created with the shared
-secret. HMAC is **not a public-key digital signature** and does not prove
-reviewer identity, market-data provenance, or data correctness. In particular,
-the verifier runtime necessarily has the shared secret: a compromised runner,
-or a maintainer permitted to change both its secret and evidence, can forge
-approval. Use protected environments, separation of duties, private key
-rotation/revocation processes, and independent market-data/strategy review.
-Do not confuse a valid token with trading authorization, independently
-validated alpha, or a safe time to trade. The control remains disabled until
-explicitly authorized.
+**Security limitation:** Ed25519 verification removes the signing private
+key from the trading runtime, unlike HMAC. It does not authenticate market
+observations or prove profitability. An attacker able to modify the trusted
+public key and its pinned fingerprint, override the verification code,
+or control the signing process can still bypass the control. Protect
+configuration and code reviews separately, document key rotation and
+revocation, and verify licensed data provenance independently.
+A valid signature does NOT authorize a trade; existing broker, ledger,
+kill-switch, and risk gates remain mandatory.
 
 Example synthetic evidence shape (NOT a validated production decision):
 
@@ -96,7 +104,7 @@ python -m unittest discover -s tests -p 'test_paper_regime_controls.py' -v
 ```
 
 The tests use local synthetic JSON and mocked broker calls. They cover
-blocked entries before any POST, missing/forged HMAC approval, changed
+blocked entries before any POST, missing/forged Ed25519 signature, changed
 digest or expiry, stale and conflicting evidence, separate read-only reconciliation
 and continuing exit management. This gate does not
 address direct broker API access outside these entry paths or confer
