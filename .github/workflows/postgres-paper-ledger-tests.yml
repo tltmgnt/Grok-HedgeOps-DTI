@@ -4,6 +4,7 @@ on:
     paths:
       - 'postgres_paper_ledger.py'
       - 'paper_purchase_decision.py'
+      - 'paper_opportunity_intelligence.py'
       - 'tests/test_postgres_paper_ledger.py'
       - '.github/workflows/postgres-paper-ledger-tests.yml'
   workflow_dispatch:

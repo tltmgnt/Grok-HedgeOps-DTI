@@ -97,7 +97,10 @@ def test_partial_exit_acknowledgment_not_retried():
         if path == '/v2/account': return {'status': 'ACTIVE', 'trading_blocked': False, 'account_blocked': False}
         raise AssertionError(path)
     with patch.dict(os.environ, {'PAPER_AUTO_TRADING_ENABLED': 'true', 'PAPER_AUTO_KILL_SWITCH': 'false'}):
-        with patch.object(session, 'fresh_quote'), patch.object(session, 'datetime') as dt:
+        with patch.object(session, 'fresh_quote'), patch.object(session, 'datetime') as dt, patch.object(
+                session, 'submit_durable_paper_exit',
+                side_effect=lambda payload, *, key, secret, get: get(
+                    PAPER, '/v2/orders', key, secret, payload=payload)):
             dt.now.return_value = NOW
             dt.fromisoformat.side_effect = datetime.fromisoformat
             with pytest.raises(RuntimeError): session.manage_exits('k', 's', now=NOW, get=get)
@@ -163,7 +166,10 @@ def test_exit_intent_saved_before_ambiguous_post():
         if path == '/v2/account': return {'status': 'ACTIVE', 'trading_blocked': False, 'account_blocked': False}
         raise AssertionError(path)
     with patch.dict(os.environ, {'PAPER_AUTO_TRADING_ENABLED': 'true', 'PAPER_AUTO_KILL_SWITCH': 'false'}):
-        with patch.object(session, 'fresh_quote'), patch.object(session, 'datetime') as dt:
+        with patch.object(session, 'fresh_quote'), patch.object(session, 'datetime') as dt, patch.object(
+                session, 'submit_durable_paper_exit',
+                side_effect=lambda payload, *, key, secret, get: get(
+                    PAPER, '/v2/orders', key, secret, payload=payload)):
             dt.now.return_value = NOW
             dt.fromisoformat.side_effect = datetime.fromisoformat
             with pytest.raises(RuntimeError):
@@ -220,8 +226,21 @@ def test_full_session_http_contract_buy_reconcile_and_exit():
     env = {'ALPACA_API_KEY': 'paper-test', 'ALPACA_API_SECRET': 'paper-test-secret',
            'PAPER_AUTO_TRADING_ENABLED': 'true', 'PAPER_AUTO_KILL_SWITCH': 'false',
            'PAPER_ALLOCATION_MODE': 'legacy', 'PAPER_REQUIRE_FRESH_QUOTE': 'true'}
+    def synthetic_durable_submit(*, symbol, notional, request_id, key, secret, get):
+        # Mock ONLY the durability boundary here. Real PostgreSQL reserve/replay
+        # semantics are independently checked in the integration test suite.
+        from paper_purchase_decision import submit
+        return submit(symbol, notional, request_id,
+                      key=key, secret=secret, get=get)
+
     with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env, clear=True):
-        with patch('urllib.request.build_opener') as opener, patch('paper_opportunity_intelligence.build_report', return_value=report):
+        with (patch('urllib.request.build_opener') as opener,
+              patch('paper_opportunity_intelligence.build_report', return_value=report),
+              patch('paper_opportunity_intelligence.submit_durable_paper_order',
+                    side_effect=synthetic_durable_submit),
+              patch('autonomous_paper_session.submit_durable_paper_exit',
+                    side_effect=lambda payload, *, key, secret, get: get(
+                        PAPER, '/v2/orders', key, secret, payload=payload))):
             opener.return_value.open.side_effect = respond
             assert session.main(['--output-dir', str(Path(tmp)/'monitor'), '--monitor-only']) == 0
             assert posts == []
