@@ -9,12 +9,8 @@ on:
       - 'paper_opportunity_intelligence.py'
       - 'paper_research_agent.py'
       - 'paper_research_worker.py'
-  workflow_dispatch:
-    inputs:
-      monitor_only:
-        description: 'Read-only rehearsal (no orders)'
-        type: boolean
-        default: true
+  # Every workflow trigger is read-only. Order execution requires a separately reviewed workflow.
+  workflow_dispatch: {}
   schedule:
     # Includes both DST offsets; broker clock skips closed markets/holidays.
     # Actions can be delayed. This is periodic monitoring, not a streaming daemon.
@@ -45,14 +41,14 @@ jobs:
           python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
       - name: Validate experiment before broker access
         run: python -m pytest tests/ -q
-      - name: Run paper research agent
+      - name: Run paper research agent (read-only)
         env:
           # Dedicated paper environment secrets used by the existing manual workflow.
-          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
-          # Authorized scheduled paper experiment; explicit operator settings override.
-          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'true' }}
-          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'false' }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          # Fail-closed values cannot be overridden by repository variables.
+          PAPER_AUTO_TRADING_ENABLED: 'false'
+          PAPER_AUTO_KILL_SWITCH: 'true'
           PAPER_ALLOCATION_MODE: legacy
           PAPER_MULTI_ORDER_RUN: 'false'
           PAPER_REQUIRE_FRESH_QUOTE: 'true'
@@ -60,16 +56,12 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_MODEL: ${{ vars.XAI_MODEL }}
           PAPER_AGENT_REVIEW_MODE: ${{ vars.PAPER_AGENT_REVIEW_MODE || 'auto' }}
-          MONITOR_ONLY: ${{ github.event_name == 'push' || inputs.monitor_only }}
         run: |
           if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
-            echo "::error::Missing paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
+            echo "::error::Missing dedicated paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
+            exit 1
           fi
-          if [ "$MONITOR_ONLY" = true ]; then
-            python paper_research_agent.py --monitor-only
-          else
-            python paper_research_agent.py
-          fi
+          python paper_research_agent.py --monitor-only
       - name: Publish experiment status
         if: always()
         run: |
