@@ -9,6 +9,8 @@ on:
       - 'paper_opportunity_intelligence.py'
       - 'paper_research_agent.py'
       - 'paper_research_worker.py'
+      - 'postgres_paper_ledger.py'
+      - 'paper_regime_controls.py'
   workflow_dispatch:
     inputs:
       monitor_only:
@@ -43,16 +45,56 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
+      - name: Install pinned PAPER database and signature verification drivers
+        # Review hash-lock integration before activating trading in production.
+        run: |
+          python -m pip install --only-binary=:all: 'psycopg[binary]==3.2.12' 'cryptography==50.0.2'
       - name: Validate experiment before broker access
         run: python -m pytest tests/ -q
+      - name: Stage protected regime evidence for explicitly authorized manual PAPER run
+        if: github.event_name == 'workflow_dispatch' && inputs.monitor_only == false
+        env:
+          PAPER_REGIME_EVIDENCE_JSON_B64: ${{ secrets.PAPER_REGIME_EVIDENCE_JSON_B64 }}
+        run: |
+          python - <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+          import sys
+
+          encoded = os.environ.get("PAPER_REGIME_EVIDENCE_JSON_B64", "")
+          if not encoded:
+              sys.exit("Protected, signed PAPER regime evidence missing")
+          try:
+              raw = base64.b64decode(encoded, validate=True)
+          except (ValueError, binascii.Error):
+              sys.exit("Invalid protected regime evidence encoding")
+          if not 1 <= len(raw) <= 16384:
+              sys.exit("Invalid protected regime evidence size")
+          destination = Path(os.environ["RUNNER_TEMP"]) / "paper-regime-evidence.json"
+          destination.write_bytes(raw)
+          destination.chmod(0o600)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("PAPER_REGIME_EVIDENCE_FILE=" + str(destination) + "\n")
+          PY
       - name: Run paper research agent
         env:
           # Dedicated paper environment secrets used by the existing manual workflow.
-          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY || secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET || secrets.ALPACA_API_SECRET }}
-          # Authorized scheduled paper experiment; explicit operator settings override.
-          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'true' }}
-          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'false' }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
+          PAPER_LEDGER_DATABASE_URL: ${{ secrets.PAPER_LEDGER_DATABASE_URL }}
+          # Default DISABLED. Only explicit protected environment opt-in can submit.
+          PAPER_AUTO_TRADING_ENABLED: ${{ vars.PAPER_AUTO_TRADING_ENABLED || 'false' }}
+          PAPER_AUTO_KILL_SWITCH: ${{ vars.PAPER_AUTO_KILL_SWITCH || 'true' }}
+          PAPER_BROKER_EXECUTION_APPROVED: ${{ vars.PAPER_BROKER_EXECUTION_APPROVED || 'false' }}
+          PAPER_REGIME_CONTROL_ENABLED: ${{ vars.PAPER_REGIME_CONTROL_ENABLED || 'true' }}
+          PAPER_REGIME_REVIEW_APPROVED: ${{ vars.PAPER_REGIME_REVIEW_APPROVED || 'false' }}
+          PAPER_REGIME_APPROVED_SHA256: ${{ vars.PAPER_REGIME_APPROVED_SHA256 }}
+          PAPER_REGIME_APPROVAL_EXPIRES_AT: ${{ vars.PAPER_REGIME_APPROVAL_EXPIRES_AT }}
+          PAPER_REGIME_APPROVAL_PUBLIC_KEY: ${{ vars.PAPER_REGIME_APPROVAL_PUBLIC_KEY }}
+          PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256: ${{ vars.PAPER_REGIME_APPROVAL_PUBLIC_KEY_SHA256 }}
+          PAPER_REGIME_APPROVAL_SIGNATURE: ${{ vars.PAPER_REGIME_APPROVAL_SIGNATURE }}
           PAPER_ALLOCATION_MODE: legacy
           PAPER_MULTI_ORDER_RUN: 'false'
           PAPER_REQUIRE_FRESH_QUOTE: 'true'
@@ -60,14 +102,24 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_MODEL: ${{ vars.XAI_MODEL }}
           PAPER_AGENT_REVIEW_MODE: ${{ vars.PAPER_AGENT_REVIEW_MODE || 'auto' }}
-          MONITOR_ONLY: ${{ github.event_name == 'push' || inputs.monitor_only }}
+          MONITOR_ONLY: ${{ github.event_name != 'workflow_dispatch' || inputs.monitor_only }}
         run: |
           if [ -z "$ALPACA_API_KEY" ] || [ -z "$ALPACA_API_SECRET" ]; then
             echo "::error::Missing paper credentials: configure ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment or repository secrets."
           fi
+          # Schedule and push are always observation-only; never send broker POST.
           if [ "$MONITOR_ONLY" = true ]; then
             python paper_research_agent.py --monitor-only
           else
+            # A manual dispatch alone is insufficient to enable orders.
+            if [ "$PAPER_BROKER_EXECUTION_APPROVED" != true ] ||
+               [ "$PAPER_AUTO_TRADING_ENABLED" != true ] ||
+               [ "$PAPER_AUTO_KILL_SWITCH" != false ] ||
+               [ "$PAPER_REGIME_CONTROL_ENABLED" != true ] ||
+               [ -z "$PAPER_LEDGER_DATABASE_URL" ]; then
+              echo "::error::PAPER execution approvals, ledger, or active regime gate unavailable."
+              exit 1
+            fi
             python paper_research_agent.py
           fi
       - name: Publish experiment status

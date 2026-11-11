@@ -116,14 +116,58 @@ class OpportunityTests(unittest.TestCase):
                 return broker(host, path, key, secret, params=params)
             return {"id": "paper-id", "status": "accepted", "symbol": "HD", "side": "buy",
                     "notional": "10.00", "client_order_id": decision["client_order_id"]}
+        def durable(*, symbol, notional, request_id, key, secret, get):
+            # The integration boundary is mocked here. Real durable reservation
+            # and replay behavior is covered by PostgreSQL integration tests.
+            response = get(PAPER, "/v2/orders", key, secret,
+                           payload={"symbol": symbol, "notional": str(notional),
+                                    "side": "buy", "type": "market", "time_in_force": "day",
+                                    "client_order_id": request_id})
+            return {"broker_status": response["status"],
+                    "broker_order_id": response["id"],
+                    "order_filled": False}
         with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
                                      "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
-            result = execute(decision, key="key", secret="secret", get=get)
+            with patch("paper_opportunity_intelligence.submit_durable_paper_order",
+                       side_effect=durable) as ledger_submit:
+                result = execute(decision, key="key", secret="secret", get=get)
+        ledger_submit.assert_called_once()
         self.assertEqual(result["decision"], "SUBMITTED")
         self.assertEqual(sum(payload is not None for _, _, payload in calls), 1)
         self.assertEqual(calls[-1][0:2], (PAPER, "/v2/orders"))
         self.assertEqual(calls[-1][2]["notional"], str(MAX_ORDER))
         self.assertNotIn("api.alpaca.markets/v2", calls[-1][0])
+
+    def test_autonomous_entry_requires_postgres_ledger_before_post(self):
+        from zoneinfo import ZoneInfo
+        today = datetime.now(timezone.utc).astimezone(
+            ZoneInfo("America/New_York")).date()
+        decision = {"decision": "READY", "symbol": "HD",
+                    "notional_usd": "10.00", "client_order_id": order_id(today, "HD")}
+        calls = []
+        def get(host, path, key, secret, *, params=None, payload=None):
+            calls.append((path, payload))
+            if payload is not None:
+                self.fail("A missing ledger must NEVER allow broker POST")
+            if path == "/v2/orders:by_client_order_id":
+                raise RuntimeError("Alpaca HTTP 404")
+            return broker(host, path, key, secret, params=params)
+        with patch.dict(os.environ, {"PAPER_AUTO_TRADING_ENABLED": "true",
+                                     "PAPER_AUTO_KILL_SWITCH": "false"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "PostgreSQL paper ledger required"):
+                execute(decision, key="key", secret="secret", get=get)
+        self.assertTrue(calls)
+        self.assertFalse(any(payload is not None for _, payload in calls))
+
+    def test_durable_submit_never_posts_when_database_unconfigured(self):
+        from paper_opportunity_intelligence import submit_durable_paper_order
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "PostgreSQL paper ledger required"):
+                submit_durable_paper_order(
+                    symbol="HD", notional=MAX_ORDER,
+                    request_id="hedgeopsauto-20261104-hd",
+                    key="k", secret="s",
+                    get=lambda *a, **k: self.fail("broker must not be contacted"))
 
     def test_daily_spending_includes_manual_buys(self):
         orders = [{"side": "buy", "notional": "4", "submitted_at": "2026-11-04T15:00:00Z"},

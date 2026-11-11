@@ -264,6 +264,11 @@ def broker_risk_check(*, now, key, secret, get=request_json):
 
 def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor_only=False):
     """Return a decision. No orders are submitted in this function."""
+    if not monitor_only:
+        from paper_regime_controls import entry_block_reason
+        blocked = entry_block_reason(now=now)
+        if blocked:
+            return {"decision": "SKIP", "reason": blocked}
     if not monitor_only and os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true":
         return {"decision": "SKIP", "reason": "Auto trading disabled"}
     if not monitor_only and os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
@@ -324,9 +329,36 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
             "reason": "Deterministic risk and news-presence gates passed"}
 
 
+def submit_durable_paper_order(*, symbol, notional, request_id, key, secret, get):
+    """Reserve an order in PostgreSQL BEFORE any broker POST.
+
+    This is the sole automated entry submission route. On ambiguity it never
+    retries the POST; recovery must look up the same client order ID.
+    """
+    database_url = os.environ.get("PAPER_LEDGER_DATABASE_URL", "")
+    if not database_url:
+        raise RuntimeError("PostgreSQL paper ledger required for autonomous entry")
+    try:
+        import psycopg
+    except ImportError:
+        raise RuntimeError("PostgreSQL ledger driver unavailable") from None
+    from postgres_paper_ledger import PostgresPaperLedger, submit_with_ledger
+
+    with psycopg.connect(database_url, connect_timeout=10,
+                         sslmode="require", autocommit=False) as connection:
+        return submit_with_ledger(
+            PostgresPaperLedger(connection), symbol, notional, request_id,
+            key=key, secret=secret, get=get,
+        )
+
+
 def execute(decision, *, key, secret, get=request_json):
     if decision["decision"] != "READY":
         return decision
+    from paper_regime_controls import entry_block_reason
+    blocked = entry_block_reason()
+    if blocked:
+        return {"decision": "SKIP", "reason": blocked}
     # Defense in depth: a second check immediately before POST.
     if os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true" or os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
         return {"decision": "SKIP", "reason": "Kill switch or enable flag changed"}
@@ -370,19 +402,23 @@ def execute(decision, *, key, secret, get=request_json):
         return {"decision": "SKIP", "reason": "Order already exists", "broker_status": existing.get("status")}
     if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") == "true":
         fresh_quote(symbol, key, secret, now=datetime.now(timezone.utc), get=get)
-    # No retry on POST, including network timeouts. Inspect Alpaca before rerunning.
-    order = get(PAPER, "/v2/orders", key, secret,
-                payload={"symbol": symbol, "notional": str(order_amount),
-                         "side": "buy", "type": "market", "time_in_force": "day",
-                         "client_order_id": client_id})
-    if (not isinstance(order, dict) or not order.get("id")
-        or order.get("symbol") != symbol or order.get("side") != "buy"
-        or order.get("client_order_id") != client_id
-        or money(order.get("notional")) != order_amount):
-        raise RuntimeError("Order acknowledgment ambiguous; check Alpaca before retrying")
-    return {"decision": "SUBMITTED", "symbol": symbol, "notional_usd": str(order_amount),
-            "client_order_id": client_id, "broker_status": order.get("status"),
-            "order_filled": order.get("status") == "filled"}
+    # Revalidate immediately before the irreversible POST.
+    blocked = entry_block_reason()
+    if blocked:
+        return {"decision": "SKIP", "reason": blocked}
+    # The existing durable ledger reserves and commits the intent before
+    # broker submission. Every later attempt only reconciles; never POST twice.
+    # A missing ledger or driver fails closed even if a broker lookup was 404.
+    result = submit_durable_paper_order(
+        symbol=symbol, notional=order_amount, request_id=client_id,
+        key=key, secret=secret, get=get,
+    )
+    return {"decision": "SUBMITTED", "symbol": symbol,
+            "notional_usd": str(order_amount), "client_order_id": client_id,
+            "broker_status": result["broker_status"],
+            "broker_order_id": result["broker_order_id"],
+            "order_filled": result["order_filled"],
+            "reconciled_existing_order": result.get("reconciled_existing_order", False)}
 
 
 def main(argv=None, *, reviewer=None):

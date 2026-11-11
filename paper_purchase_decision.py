@@ -102,6 +102,11 @@ def submit(symbol, amount, request_id, *, key, secret, get=request_json):
         raise ValueError('Asset must be active, tradable and fractionable')
     # Manual purchases deliberately do not require the automatic strategy's score,
     # news, five-position cap or market-open gate. Closed-session orders may queue.
+    # Do not gate read-only reconciliation of an existing client order ID.
+    from paper_regime_controls import entry_block_reason
+    blocked = entry_block_reason()
+    if blocked:
+        raise ValueError(blocked)
     # POST once only. A timeout is AMBIGUOUS, never a reason to retry blindly.
     try:
         order = get(PAPER, '/v2/orders', key, secret, payload={
@@ -214,6 +219,17 @@ def main(argv=None):
             'source': reference['source'], 'broker_fill': False,
             'assumption': 'Full immediate hypothetical allocation at reference mark; excludes fees/slippage'}
         report['status'] = 'REFERENCE_SIMULATION_RECORDED'
+    # Before creating a replay marker, reject new entries that fail a
+    # separately activated regime control. Read-only reconciliation remains open.
+    if args.submit_paper:
+        from paper_regime_controls import entry_block_reason
+        blocked = entry_block_reason(now=now)
+        if blocked:
+            report['status'] = 'REGIME_ENTRY_BLOCKED'
+            report['reason'] = blocked
+            report['order_submitted'] = False
+            write_report(args.output_dir, report)
+            return 1
     # Prevent local replay before any broker POST; retain marker on ambiguity.
     if args.submit_paper:
         try:

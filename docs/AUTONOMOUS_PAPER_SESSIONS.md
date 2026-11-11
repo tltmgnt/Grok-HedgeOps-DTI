@@ -20,21 +20,70 @@ Environment approval requirements must permit scheduled runs if unattended
 execution is desired. This code does not change environment protection settings.
 Secrets cannot be verified from source control or offline tests.
 
-The scheduled workflow is **Autonomous Paper Sessions**. It runs at minutes 17 and
+The scheduled workflow is **Paper Research Agent**. It runs at minutes 17 and
 47, 13–21 UTC on weekdays, then consults the broker clock for holidays and actual
-market hours. On November 9, 2026 the first planned open-market slot is 14:47 UTC
-(9:47 a.m. Eastern / 6:47 a.m. Pacific). Actions can start late or be skipped.
+market hours. Scheduler times are in UTC; actual local market times shift with daylight
+saving time, and jobs may start late or be skipped. Actions can start late or be skipped.
 Manual dispatch defaults to **monitor_only = true**. Run that first and inspect
 `session.json`, `entry/decision.json` and the job summary before a paper order run.
 
-On merging this change, scheduled PAPER execution defaults to enabled. Existing
-repository/environment variables override it:
+The hardened workflow runs every **scheduled** and **push** session in
+monitor-only mode, with no new PAPER broker orders. To test the broker-executing
+path requires an explicit, reviewed **manual** workflow dispatch with
+`monitor_only=false`, a protected `paper-trading` environment and all
+the approved settings below. This is NOT continuous streaming execution;
+the strategy uses completed IEX daily bars and a fresh quote guard.
 
-| Variable | Default | Effect |
+| Variable / secret | Default | Effect |
 |---|---|---|
-| `PAPER_AUTO_TRADING_ENABLED` | `true` | Set `false` to disable new entries and exits |
-| `PAPER_AUTO_KILL_SWITCH` | `false` | Set `true` to disable new entries and exits |
-| `PAPER_DATA_FEED` | `iex` | `sip` requires an entitled Alpaca data subscription |
+| `PAPER_AUTO_TRADING_ENABLED` | `false` | Must be explicitly `true` for any automated entry or exit |
+| `PAPER_AUTO_KILL_SWITCH` | `true` | Must be explicitly `false` for broker execution |
+| `PAPER_BROKER_EXECUTION_APPROVED` | `false` | Additional protected manual execution approval |
+| `PAPER_LEDGER_DATABASE_URL` (secret) | absent | Durable PostgreSQL ledger required before every automatic buy POST |
+| `PAPER_REGIME_CONTROL_ENABLED` | `true` | Must remain enabled for broker-executing sessions |
+| `PAPER_REGIME_REVIEW_APPROVED` | `false` | Must be separately approved, with valid signed bull evidence |
+| `PAPER_DATA_FEED` | `iex` | `sip` requires an entitled Alpaca subscription |
+
+The evidence file, approved digest, expiry, Ed25519 public-key fingerprint,
+public key and signature must also be provided as described in
+[PAPER_REGIME_ENTRY_CONTROL.md](PAPER_REGIME_ENTRY_CONTROL.md).
+For manual broker-capable workflow dispatches, provide
+`PAPER_REGIME_EVIDENCE_JSON_B64` as a **protected environment secret**:
+the base64 encoding of the exact reviewed, signed regime-evidence JSON
+bytes. The runner decodes it into a mode-0600 temporary file, sets the
+runtime evidence-file path, and never uploads that file as an artifact.
+The environment's approved SHA-256 digest must match those exact bytes.
+The expiry, key, pinned key fingerprint and signature must be maintained
+independently in protected environment variables. Do not place the
+private signing key in GitHub Actions, or log/copy the evidence to the
+workflow summary. This secret-delivery path is only used for an
+explicitly broker-capable manual run; scheduled observation does not
+require it.
+The reference prototype regime thresholds are **not empirically validated**.
+Until independent risk, statistical, source, and key-management review,
+**do not activate any new broker entry**. A BULL label never authorizes
+trading by itself. The signing private key must not be available to the runner.
+
+The PostgreSQL `paper_order_ledger` AND `paper_exit_ledger` tables must
+be provisioned by an authorized database migration operator using
+[`migrations/20261110_paper_broker_intent_ledger.sql`](../migrations/20261110_paper_broker_intent_ledger.sql)
+**before** manual dispatch. The runner does not create database schemas. Use a restricted DB role and
+TLS, with independently administered secret access. Automatic PAPER **buys** flow through `PostgresPaperLedger` and
+`submit_with_ledger`, while strategy **sells** flow through the separate
+`PostgresPaperExitLedger` and `submit_exit_with_ledger`.
+Both commit an immutable client order intent **before** broker POST; on
+retry/restart an existing intent can only reconcile the same ID.
+A broker 404 does not make a reserved buy or sell intent safe to POST again.
+Unresolved orders must be manually reconciled before any new attempt.
+The runner still records local exit-intent audit events, but those files
+alone are not considered a durable replay safeguard.
+The workflow installs pinned PostgreSQL and Ed25519 verifier drivers.
+Their hashes and dependency graph must be integrated into the repository's
+reproducible dependency locks before operational activation.
+
+This workflow uses dedicated `ALPACA_PAPER_API_KEY` and
+`ALPACA_PAPER_API_SECRET` only; there is no fallback to live keys.
+No orders are placed by CI or these changes alone.
 
 Kill switches prevent future submissions; they do not cancel broker orders already
 accepted. Use Alpaca's paper account to reconcile or cancel those. The legacy manual
@@ -65,8 +114,10 @@ All opportunity order workflows share a concurrency group to reduce this risk.
   thresholds or broker-native protective stops. Gaps and outages can exceed them.
 - Exit only an exact unmixed long lot proven by a fully filled strategy buy and
   complete broker order history. Unknown/manual holdings are left for review.
-- Pending orders block entries; deterministic IDs prevent duplicate entries and
-  exits. POSTs are never retried after timeouts. Exit intents are written before POST.
+- Pending orders block entries; deterministic IDs and PostgreSQL reservations
+  prevent a second POST of previously reserved entry or exit intents.
+  POSTs are never retried after timeouts. Exit intents are written to a
+  persistent ledger and the local audit before POST.
 - Rejected/ambiguous orders require broker inspection. A stable failed exit ID is
   not replaced automatically with a new sell ID.
 - A no-trade day is a valid outcome. Missing credentials, malformed history,
