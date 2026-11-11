@@ -1,6 +1,7 @@
 """Safety regression tests for opt-in PAPER entry regime control."""
 import json
 import hashlib
+import hmac
 import os
 from pathlib import Path
 import tempfile
@@ -8,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
-from paper_regime_controls import entry_block_reason
+from paper_regime_controls import entry_block_reason, _approval_message
 from market_regime_validation import classify
 
 
@@ -36,7 +37,17 @@ class RegimeEntryControlTests(unittest.TestCase):
             "PAPER_REGIME_EVIDENCE_FILE": str(self.path),
             "PAPER_REGIME_APPROVED_SHA256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
             "PAPER_REGIME_APPROVAL_EXPIRES_AT": (self.now + timedelta(hours=2)).isoformat(),
+            "PAPER_REGIME_APPROVAL_HMAC_KEY": "a1" * 32,  # synthetic-only test key
         }
+        self.sign(self.env)
+
+    def sign(self, env):
+        env["PAPER_REGIME_APPROVAL_HMAC_SHA256"] = hmac.new(
+            bytes.fromhex(env["PAPER_REGIME_APPROVAL_HMAC_KEY"]),
+            _approval_message(env["PAPER_REGIME_APPROVED_SHA256"],
+                              env["PAPER_REGIME_APPROVAL_EXPIRES_AT"]),
+            hashlib.sha256,
+        ).hexdigest()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -59,9 +70,11 @@ class RegimeEntryControlTests(unittest.TestCase):
                 self.assertIsNotNone(entry_block_reason(now=self.now, environ=env))
         expired = dict(self.env)
         expired["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now - timedelta(minutes=1)).isoformat()
+        self.sign(expired)
         self.assertIn("expired", entry_block_reason(now=self.now, environ=expired))
         too_far = dict(self.env)
         too_far["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now + timedelta(days=2)).isoformat()
+        self.sign(too_far)
         self.assertIn("window", entry_block_reason(now=self.now, environ=too_far))
 
     def test_stale_evidence_is_rejected_even_with_matching_digest(self):
@@ -71,6 +84,7 @@ class RegimeEntryControlTests(unittest.TestCase):
         self.path.write_text(json.dumps(row))
         env = dict(self.env)
         env["PAPER_REGIME_APPROVED_SHA256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.sign(env)
         self.assertIn("stale", entry_block_reason(now=self.now, environ=env))
 
     def test_changed_bear_evidence_with_matching_digest_is_still_blocked(self):
@@ -79,7 +93,30 @@ class RegimeEntryControlTests(unittest.TestCase):
         self.path.write_text(json.dumps(row))
         env = dict(self.env)
         env["PAPER_REGIME_APPROVED_SHA256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.sign(env)
         self.assertIn("not verified BULL", entry_block_reason(now=self.now, environ=env))
+
+    def test_authenticated_approval_is_required_even_with_correct_digest(self):
+        for name in ("PAPER_REGIME_APPROVAL_HMAC_KEY", "PAPER_REGIME_APPROVAL_HMAC_SHA256"):
+            with self.subTest(name=name):
+                env = dict(self.env)
+                env.pop(name)
+                self.assertIn("authenticated approval",
+                              entry_block_reason(now=self.now, environ=env))
+        env = dict(self.env)
+        env["PAPER_REGIME_APPROVAL_HMAC_SHA256"] = "0" * 64
+        self.assertIn("authenticated approval",
+                      entry_block_reason(now=self.now, environ=env))
+
+    def test_approval_is_bound_to_digest_and_expiry(self):
+        altered = dict(self.env)
+        altered["PAPER_REGIME_APPROVED_SHA256"] = "0" * 64
+        self.assertIn("authenticated approval",
+                      entry_block_reason(now=self.now, environ=altered))
+        altered = dict(self.env)
+        altered["PAPER_REGIME_APPROVAL_EXPIRES_AT"] = (self.now + timedelta(hours=1)).isoformat()
+        self.assertIn("authenticated approval",
+                      entry_block_reason(now=self.now, environ=altered))
 
     def test_missing_approval_and_evidence_hold(self):
         for key in ("PAPER_REGIME_REVIEW_APPROVED", "PAPER_REGIME_EVIDENCE_FILE"):
