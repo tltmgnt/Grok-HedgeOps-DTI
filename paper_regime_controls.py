@@ -21,7 +21,7 @@ MAX_APPROVAL_WINDOW = timedelta(hours=24)
 
 # Domain separation and version pinning prevent reusing approvals for another
 # operation or a future policy revision. The signing key is never in git.
-APPROVAL_CONTEXT = b"HEDGEOPS:PAPER:REGIME_ENTRY:v1\\n"
+APPROVAL_CONTEXT = b"HEDGEOPS:PAPER:REGIME_ENTRY:v1\n"
 APPROVAL_POLICY = "regime-prototype-v1"
 
 
@@ -29,7 +29,7 @@ def _approval_message(digest, expires_at):
     # ASCII-only digest and an exact timestamp string. The latter is checked
     # for a timezone below; changes to it invalidate the authenticator.
     return (APPROVAL_CONTEXT +
-            (APPROVAL_POLICY + "\\n" + digest + "\\n" + expires_at).encode("ascii"))
+            (APPROVAL_POLICY + "\n" + digest + "\n" + expires_at).encode("ascii"))
 
 
 def _verify_approval(env, digest, expires_at):
