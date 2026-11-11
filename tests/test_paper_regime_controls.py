@@ -66,6 +66,18 @@ class RegimeEntryControlTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_missing_crypto_runtime_fails_closed(self):
+        from unittest.mock import patch as mock_patch
+        import builtins
+        actual_import = builtins.__import__
+        def deny_crypto(name, *args, **kwargs):
+            if name.startswith("cryptography"):
+                raise ImportError("simulation: no cryptography dependency")
+            return actual_import(name, *args, **kwargs)
+        with mock_patch("builtins.__import__", side_effect=deny_crypto):
+            self.assertIn("authenticated approval",
+                          entry_block_reason(now=self.now, environ=self.env))
+
     def test_disabled_preserves_preexisting_behavior(self):
         self.assertIsNone(entry_block_reason(now=self.now, environ={}))
 
@@ -73,10 +85,12 @@ class RegimeEntryControlTests(unittest.TestCase):
     def test_verified_bull_only_continues_existing_gates(self):
         self.assertIsNone(entry_block_reason(now=self.now, environ=self.env))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_modified_evidence_is_rejected_even_when_label_is_bull(self):
         self.path.write_text(json.dumps(sample(self.now), sort_keys=True))
         self.assertIn("digest", entry_block_reason(now=self.now, environ=self.env))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_digest_and_expiry_are_both_required(self):
         for key in ("PAPER_REGIME_APPROVED_SHA256", "PAPER_REGIME_APPROVAL_EXPIRES_AT"):
             with self.subTest(key=key):
@@ -92,6 +106,7 @@ class RegimeEntryControlTests(unittest.TestCase):
         self.sign(too_far)
         self.assertIn("window", entry_block_reason(now=self.now, environ=too_far))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_stale_evidence_is_rejected_even_with_matching_digest(self):
         row = sample(self.now)
         row["observed_at"] = (self.now - timedelta(days=2)).isoformat()
@@ -102,6 +117,7 @@ class RegimeEntryControlTests(unittest.TestCase):
         self.sign(env)
         self.assertIn("stale", entry_block_reason(now=self.now, environ=env))
 
+    @unittest.skipIf(Ed25519PrivateKey is None, "cryptography dependency not installed")
     def test_changed_bear_evidence_with_matching_digest_is_still_blocked(self):
         row = sample(self.now)
         row.update({"trend_pct": -4, "breadth_fraction": 0.2})
