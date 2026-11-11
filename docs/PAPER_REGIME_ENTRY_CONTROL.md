@@ -21,6 +21,26 @@ This is intentionally **opt-in** to avoid unreviewed operational changes.
 - `PAPER_REGIME_REVIEW_APPROVED=true`: a second explicit approval flag.
   The flag is not a signature or independent security boundary.
 - `PAPER_REGIME_EVIDENCE_FILE`: local read-only JSON evidence record.
+- `PAPER_REGIME_APPROVED_SHA256`: 64-character lowercase SHA-256 digest of
+  the **exact evidence file bytes**, independently reviewed and pinned through
+  protected configuration (not computed from that file by the trading job).
+- `PAPER_REGIME_APPROVAL_EXPIRES_AT`: timezone-aware ISO 8601 expiry of the
+  approved evidence, at most 24 hours ahead of the current check.
+
+When the optional gate is active, both the protected digest and expiry are
+**mandatory**. A byte change, missing value, invalid digest, expired approval,
+or observation older than 36 hours blocks new buys. The digest is checked
+again immediately before an automatic broker POST. Avoid storing approved
+hashes in public repository files. Restrict who can change protected settings,
+review independent source provenance, and revoke approvals promptly.
+
+**Security limitation:** A SHA-256 pin detects accidental or unapproved file
+changes relative to its approved hash; it is **not a digital signature**.
+If the same actor can modify both the evidence and approved hash, the
+approval offers no independent trust. Source authenticity, independent
+reviewer identity, data licenses, methodology and historical alpha still
+require controls *outside this prototype*. Do not confuse a passing gate
+with permission to trade.
 
 Example synthetic evidence shape (NOT a validated production decision):
 
@@ -56,8 +76,9 @@ python -m unittest discover -s tests -p 'test_paper_regime_controls.py' -v
 ```
 
 The tests use local synthetic JSON and mocked broker calls. They cover
-blocked entries before any POST, review/freshness requirements, separate
-read-only reconciliation and continuing exit management. This gate does not
+blocked entries before any POST, absent/tampered digest approval, expired
+approval, stale and conflicting evidence, separate read-only reconciliation
+and continuing exit management. This gate does not
 address direct broker API access outside these entry paths or confer
 transactional authorization.
 
