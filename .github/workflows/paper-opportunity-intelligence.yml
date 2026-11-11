@@ -57,6 +57,7 @@ jobs:
         run: |
           python - <<'PY'
           import base64
+          import binascii
           import os
           from pathlib import Path
           import sys
@@ -66,7 +67,7 @@ jobs:
               sys.exit("Protected, signed PAPER regime evidence missing")
           try:
               raw = base64.b64decode(encoded, validate=True)
-          except ValueError:
+          except (ValueError, binascii.Error):
               sys.exit("Invalid protected regime evidence encoding")
           if not 1 <= len(raw) <= 16384:
               sys.exit("Invalid protected regime evidence size")
