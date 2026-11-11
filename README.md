@@ -133,6 +133,14 @@ The policy defaults to UNKNOWN/HOLD without verified evidence; it grants no
 order authority, has no broker integration, and does not change existing
 trading controls. Performance across regimes remains unvalidated.
 
+## Optional PAPER regime entry control (staged)
+
+The [regime entry control](docs/PAPER_REGIME_ENTRY_CONTROL.md) adds an
+explicitly activated, fail-closed BULL-only research-evidence gate on new
+automatic and manual PAPER buy submissions. It does not change exit-order
+management, read-only reconciliation, broker risk checks, or live trading.
+The new control is not active until explicitly enabled and reviewed.
+
 ## ResearchOS / TECT concept integration
 
 The [stock-news topology shadow module](docs/NEWS_TOPOLOGY.md) separately records

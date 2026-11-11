@@ -264,6 +264,11 @@ def broker_risk_check(*, now, key, secret, get=request_json):
 
 def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor_only=False):
     """Return a decision. No orders are submitted in this function."""
+    if not monitor_only:
+        from paper_regime_controls import entry_block_reason
+        blocked = entry_block_reason(now=now)
+        if blocked:
+            return {"decision": "SKIP", "reason": blocked}
     if not monitor_only and os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true":
         return {"decision": "SKIP", "reason": "Auto trading disabled"}
     if not monitor_only and os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
@@ -327,6 +332,10 @@ def assess(*, now, key, secret, get=request_json, bars_fetch=fetch_bars, monitor
 def execute(decision, *, key, secret, get=request_json):
     if decision["decision"] != "READY":
         return decision
+    from paper_regime_controls import entry_block_reason
+    blocked = entry_block_reason()
+    if blocked:
+        return {"decision": "SKIP", "reason": blocked}
     # Defense in depth: a second check immediately before POST.
     if os.environ.get("PAPER_AUTO_TRADING_ENABLED") != "true" or os.environ.get("PAPER_AUTO_KILL_SWITCH") != "false":
         return {"decision": "SKIP", "reason": "Kill switch or enable flag changed"}
@@ -370,6 +379,10 @@ def execute(decision, *, key, secret, get=request_json):
         return {"decision": "SKIP", "reason": "Order already exists", "broker_status": existing.get("status")}
     if os.getenv("PAPER_REQUIRE_FRESH_QUOTE") == "true":
         fresh_quote(symbol, key, secret, now=datetime.now(timezone.utc), get=get)
+    # Revalidate immediately before the irreversible POST.
+    blocked = entry_block_reason()
+    if blocked:
+        return {"decision": "SKIP", "reason": blocked}
     # No retry on POST, including network timeouts. Inspect Alpaca before rerunning.
     order = get(PAPER, "/v2/orders", key, secret,
                 payload={"symbol": symbol, "notional": str(order_amount),
