@@ -20,21 +20,51 @@ Environment approval requirements must permit scheduled runs if unattended
 execution is desired. This code does not change environment protection settings.
 Secrets cannot be verified from source control or offline tests.
 
-The scheduled workflow is **Autonomous Paper Sessions**. It runs at minutes 17 and
+The scheduled workflow is **Paper Research Agent**. It runs at minutes 17 and
 47, 13–21 UTC on weekdays, then consults the broker clock for holidays and actual
-market hours. On November 9, 2026 the first planned open-market slot is 14:47 UTC
-(9:47 a.m. Eastern / 6:47 a.m. Pacific). Actions can start late or be skipped.
+market hours. Scheduler times are in UTC; actual local market times shift with daylight
+saving time, and jobs may start late or be skipped. Actions can start late or be skipped.
 Manual dispatch defaults to **monitor_only = true**. Run that first and inspect
 `session.json`, `entry/decision.json` and the job summary before a paper order run.
 
-On merging this change, scheduled PAPER execution defaults to enabled. Existing
-repository/environment variables override it:
+The hardened workflow runs every **scheduled** and **push** session in
+monitor-only mode, with no new PAPER broker orders. To test the broker-executing
+path requires an explicit, reviewed **manual** workflow dispatch with
+`monitor_only=false`, a protected `paper-trading` environment and all
+the approved settings below. This is NOT continuous streaming execution;
+the strategy uses completed IEX daily bars and a fresh quote guard.
 
-| Variable | Default | Effect |
+| Variable / secret | Default | Effect |
 |---|---|---|
-| `PAPER_AUTO_TRADING_ENABLED` | `true` | Set `false` to disable new entries and exits |
-| `PAPER_AUTO_KILL_SWITCH` | `false` | Set `true` to disable new entries and exits |
-| `PAPER_DATA_FEED` | `iex` | `sip` requires an entitled Alpaca data subscription |
+| `PAPER_AUTO_TRADING_ENABLED` | `false` | Must be explicitly `true` for any automated entry or exit |
+| `PAPER_AUTO_KILL_SWITCH` | `true` | Must be explicitly `false` for broker execution |
+| `PAPER_BROKER_EXECUTION_APPROVED` | `false` | Additional protected manual execution approval |
+| `PAPER_LEDGER_DATABASE_URL` (secret) | absent | Durable PostgreSQL ledger required before every automatic buy POST |
+| `PAPER_REGIME_CONTROL_ENABLED` | `true` | Must remain enabled for broker-executing sessions |
+| `PAPER_REGIME_REVIEW_APPROVED` | `false` | Must be separately approved, with valid signed bull evidence |
+| `PAPER_DATA_FEED` | `iex` | `sip` requires an entitled Alpaca subscription |
+
+The evidence file, approved digest, expiry, Ed25519 public-key fingerprint,
+public key and signature must also be provided as described in
+[PAPER_REGIME_ENTRY_CONTROL.md](PAPER_REGIME_ENTRY_CONTROL.md).
+The reference prototype regime thresholds are **not empirically validated**.
+Until independent risk, statistical, source, and key-management review,
+**do not activate any new broker entry**. A BULL label never authorizes
+trading by itself. The signing private key must not be available to the runner.
+
+The PostgreSQL `paper_order_ledger` table must be provisioned by an
+authorized DB migration operator **before** manual dispatch; the runner
+does not create its own database schema. Use a restricted DB role and
+TLS, with independently administered secret access. The actual automatic
+broker POST flows through `PostgresPaperLedger` and `submit_with_ledger`:
+commit the attempt first; on retry/restart, reconcile the same client order
+ID only. A broker 404 does not make a reserved intent safe to POST again.
+The workflow installs a pinned PostgreSQL driver, but the runtime dependency
+locks must be independently reviewed before any operational activation.
+
+This workflow uses dedicated `ALPACA_PAPER_API_KEY` and
+`ALPACA_PAPER_API_SECRET` only; there is no fallback to live keys.
+No orders are placed by CI or these changes alone.
 
 Kill switches prevent future submissions; they do not cancel broker orders already
 accepted. Use Alpaca's paper account to reconcile or cancel those. The legacy manual
