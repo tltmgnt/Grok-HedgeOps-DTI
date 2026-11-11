@@ -27,6 +27,22 @@ This is intentionally **opt-in** to avoid unreviewed operational changes.
 - `PAPER_REGIME_APPROVAL_EXPIRES_AT`: timezone-aware ISO 8601 expiry of the
   approved evidence, at most 24 hours ahead of the current check.
 
+- `PAPER_REGIME_APPROVAL_HMAC_KEY`: protected, randomly generated 32–64 byte
+  key expressed as lowercase hexadecimal; never commit or log it.
+- `PAPER_REGIME_APPROVAL_HMAC_SHA256`: lowercase HMAC-SHA256 of the
+  domain-separated, versioned approval message described below. This
+  authenticator must be issued by a separate reviewed process, never
+  derived dynamically by the execution workflow.
+
+The signed bytes are the UTF-8/ASCII concatenation of:
+`HEDGEOPS:PAPER:REGIME_ENTRY:v1`, newline,
+`regime-prototype-v1`, newline,
+`PAPER_REGIME_APPROVED_SHA256`, newline,
+`PAPER_REGIME_APPROVAL_EXPIRES_AT` (exact text). Use HMAC-SHA256.
+Changing the policy version, expiration text, or evidence digest invalidates
+the authenticator. Evidence classification is independently re-evaluated at
+each gate check; the HMAC must never substitute for those checks.
+
 When the optional gate is active, both the protected digest and expiry are
 **mandatory**. A byte change, missing value, invalid digest, expired approval,
 or observation older than 36 hours blocks new buys. The digest is checked
@@ -34,13 +50,17 @@ again immediately before an automatic broker POST. Avoid storing approved
 hashes in public repository files. Restrict who can change protected settings,
 review independent source provenance, and revoke approvals promptly.
 
-**Security limitation:** A SHA-256 pin detects accidental or unapproved file
-changes relative to its approved hash; it is **not a digital signature**.
-If the same actor can modify both the evidence and approved hash, the
-approval offers no independent trust. Source authenticity, independent
-reviewer identity, data licenses, methodology and historical alpha still
-require controls *outside this prototype*. Do not confuse a passing gate
-with permission to trade.
+**Security limitation:** The SHA-256 pin detects file changes, while
+HMAC-SHA256 checks whether the approval token was created with the shared
+secret. HMAC is **not a public-key digital signature** and does not prove
+reviewer identity, market-data provenance, or data correctness. In particular,
+the verifier runtime necessarily has the shared secret: a compromised runner,
+or a maintainer permitted to change both its secret and evidence, can forge
+approval. Use protected environments, separation of duties, private key
+rotation/revocation processes, and independent market-data/strategy review.
+Do not confuse a valid token with trading authorization, independently
+validated alpha, or a safe time to trade. The control remains disabled until
+explicitly authorized.
 
 Example synthetic evidence shape (NOT a validated production decision):
 
@@ -76,8 +96,8 @@ python -m unittest discover -s tests -p 'test_paper_regime_controls.py' -v
 ```
 
 The tests use local synthetic JSON and mocked broker calls. They cover
-blocked entries before any POST, absent/tampered digest approval, expired
-approval, stale and conflicting evidence, separate read-only reconciliation
+blocked entries before any POST, missing/forged HMAC approval, changed
+digest or expiry, stale and conflicting evidence, separate read-only reconciliation
 and continuing exit management. This gate does not
 address direct broker API access outside these entry paths or confer
 transactional authorization.
