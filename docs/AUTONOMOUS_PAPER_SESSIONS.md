@@ -47,6 +47,18 @@ the strategy uses completed IEX daily bars and a fresh quote guard.
 The evidence file, approved digest, expiry, Ed25519 public-key fingerprint,
 public key and signature must also be provided as described in
 [PAPER_REGIME_ENTRY_CONTROL.md](PAPER_REGIME_ENTRY_CONTROL.md).
+For manual broker-capable workflow dispatches, provide
+`PAPER_REGIME_EVIDENCE_JSON_B64` as a **protected environment secret**:
+the base64 encoding of the exact reviewed, signed regime-evidence JSON
+bytes. The runner decodes it into a mode-0600 temporary file, sets the
+runtime evidence-file path, and never uploads that file as an artifact.
+The environment's approved SHA-256 digest must match those exact bytes.
+The expiry, key, pinned key fingerprint and signature must be maintained
+independently in protected environment variables. Do not place the
+private signing key in GitHub Actions, or log/copy the evidence to the
+workflow summary. This secret-delivery path is only used for an
+explicitly broker-capable manual run; scheduled observation does not
+require it.
 The reference prototype regime thresholds are **not empirically validated**.
 Until independent risk, statistical, source, and key-management review,
 **do not activate any new broker entry**. A BULL label never authorizes
@@ -59,8 +71,9 @@ TLS, with independently administered secret access. The actual automatic
 broker POST flows through `PostgresPaperLedger` and `submit_with_ledger`:
 commit the attempt first; on retry/restart, reconcile the same client order
 ID only. A broker 404 does not make a reserved intent safe to POST again.
-The workflow installs a pinned PostgreSQL driver, but the runtime dependency
-locks must be independently reviewed before any operational activation.
+The workflow installs pinned PostgreSQL and Ed25519 verifier drivers.
+Their hashes and dependency graph must be integrated into the repository's
+reproducible dependency locks before operational activation.
 
 This workflow uses dedicated `ALPACA_PAPER_API_KEY` and
 `ALPACA_PAPER_API_SECRET` only; there is no fallback to live keys.
