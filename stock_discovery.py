@@ -51,6 +51,13 @@ def fetch_bars(symbols, key, secret, *, now=None, opener=open_api):
             with opener(request, timeout=30) as response:
                 payload = json.load(response)
         except HTTPError as exc:
+            if exc.code == 401:
+                raise RuntimeError(
+                    "Alpaca market data HTTP 401: credentials rejected. "
+                    "Verify or rotate matching ALPACA_API_KEY and "
+                    "ALPACA_API_SECRET repository Actions secrets. "
+                    "Do not share keys or retry unchanged credentials."
+                ) from None
             raise RuntimeError(f"Alpaca market data HTTP {exc.code}") from None
         except (URLError, TimeoutError) as exc:
             raise RuntimeError("Alpaca market data connection failed") from exc
