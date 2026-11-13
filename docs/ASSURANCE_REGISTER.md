@@ -155,9 +155,15 @@ The wrapper materializes evidence in a temporary private runner directory, valid
 it, deletes it and writes only fixed statuses, gate eligibility and gap counts to
 stdout and the job summary. It uploads no artifacts, uses no broker credentials and
 sends no external notifications. Counts and pass/fail status remain visible in public
-Actions runs. With an absent or empty secret, scheduled and manual runs exit successfully
-with `SKIPPED_NOT_CONFIGURED` and publish no gate results. Both triggers fail on malformed
-bundles (`INVALID_EVIDENCE`) or incomplete gates (`EVIDENCE_INCOMPLETE`).
+Actions runs. When invoked directly without a bundle or import file, `scheduled_assurance.py`
+returns `SKIPPED_NOT_CONFIGURED`. The **GitHub Actions workflow** differs: if the
+private secret is empty, it first attempts to import fresh verified results from
+`hourly-offline-release.yml`. This offline synthetic evidence intentionally
+satisfies **none** of the 20 independently reviewed requirements, so successful
+import yields `EVIDENCE_INCOMPLETE` and a failed job. If no suitable recent
+artifact exists, the import itself fails closed. The synthetic importer cannot
+complete private assurance. Both triggers fail on malformed bundles
+(`INVALID_EVIDENCE`) or incomplete gates (`EVIDENCE_INCOMPLETE`).
 A completed evidence assessment reports `EVIDENCE_COMPLETE`, never certification or execution
 permission. Existing GitHub notification preferences determine failure notifications.
 
@@ -171,3 +177,19 @@ The hourly offline simulation covers a different scope and cannot close this gat
 To activate assessment, package the private register and its evidence artifacts,
 configure the named repository Actions secret, and verify `EVIDENCE_COMPLETE` in
 a subsequent run. Scheduled runs can finish successfully while assessment is skipped.
+
+### Follow-up incident: November 13, 2026
+
+The scheduled workflow imported a verified successful hourly offline run but
+reported `EVIDENCE_INCOMPLETE`: 6 missing investor-fit categories, 7 missing
+operational-assurance categories, and 7 missing trading-evidence categories,
+plus missing scope metadata in each gate. This is expected for the intentionally
+unattested synthetic import, not a scheduler or Python installation failure.
+
+**Remediation:** Have the authorized reviewers independently produce and attest
+the complete private register and actual evidence artifacts described above;
+package them locally, verify their SHA256 hashes and expiry, then set
+`ASSURANCE_EVIDENCE_BUNDLE_JSON` as a restricted repository Actions secret.
+Never publish private investor/account data or fabricate evidence to make the
+workflow green. Re-run **Scheduled Evidence Gates** manually after configuration
+and verify the redacted gate status, not just the job color.
