@@ -69,6 +69,17 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fetch_bars(["SPY"], "", "")
 
+    def test_http_401_provides_safe_remediation(self):
+        def fail(request, timeout):
+            raise HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+        with self.assertRaisesRegex(RuntimeError, "HTTP 401: credentials rejected") as context:
+            fetch_bars(["SPY"], "private-key", "private-secret", opener=fail)
+        message = str(context.exception)
+        self.assertIn("ALPACA_API_KEY", message)
+        self.assertIn("ALPACA_API_SECRET", message)
+        self.assertNotIn("private-key", message)
+        self.assertNotIn("private-secret", message)
+
     def test_http_error_does_not_expose_credentials(self):
         def fail(request, timeout):
             raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
