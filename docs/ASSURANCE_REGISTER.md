@@ -176,7 +176,7 @@ The hourly offline simulation covers a different scope and cannot close this gat
 
 To activate assessment, package the private register and its evidence artifacts,
 configure the named repository Actions secret, and verify `EVIDENCE_COMPLETE` in
-a subsequent run. Scheduled runs can finish successfully while assessment is skipped.
+a subsequent run. A skipped local assessment is not a passing private-evidence gate.
 
 ### Follow-up incident: November 13, 2026
 
