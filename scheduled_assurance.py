@@ -80,6 +80,13 @@ def main():
     print(json.dumps(report, sort_keys=True))
     if report['status'] == 'SKIPPED_NOT_CONFIGURED':
         print('::notice::Evidence assessment skipped because ASSURANCE_EVIDENCE_BUNDLE_JSON is empty.')
+    elif report['status'] == 'EVIDENCE_INCOMPLETE':
+        print('::error::Private assurance evidence incomplete. Required reviewed artifacts '
+              'or scope metadata are missing. Synthetic offline evidence alone cannot '
+              'satisfy these gates; see docs/ASSURANCE_REGISTER.md.')
+    elif report['status'] == 'INVALID_EVIDENCE':
+        print('::error::Private assurance bundle is malformed or unverified. '
+              'Validate the register and artifacts locally.')
     summary = os.getenv('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as stream:
