@@ -77,6 +77,20 @@ class ScheduledAssuranceTests(unittest.TestCase):
         self.assertFalse(result['certification_issued'])
         self.assertNotIn('synthetic private evidence', json.dumps(result))
 
+    def test_incomplete_main_reports_action_without_private_text(self):
+        bundle = self.bundle()
+        bundle['register']['gates']['investor_fit']['owner'] = 'PRIVATE_OWNER'
+        output = io.StringIO()
+        env = {
+            'GITHUB_EVENT_NAME': 'workflow_dispatch',
+            'ASSURANCE_EVIDENCE_BUNDLE_JSON': json.dumps(bundle),
+        }
+        with patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(output):
+            self.assertEqual(main(), 1)
+        self.assertIn('::error::Private assurance evidence incomplete', output.getvalue())
+        self.assertIn('Synthetic offline evidence alone cannot', output.getvalue())
+        self.assertNotIn('PRIVATE_OWNER', output.getvalue())
+
     def test_schedule_skips_only_an_empty_bundle(self):
         env = {'GITHUB_EVENT_NAME': 'schedule', 'ASSURANCE_CRON': next(iter(CADENCES))}
         for raw, code, status in [('', 0, 'SKIPPED_NOT_CONFIGURED'), (' ', 1, 'INVALID_EVIDENCE')]:

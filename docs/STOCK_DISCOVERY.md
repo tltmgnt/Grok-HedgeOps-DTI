@@ -37,7 +37,9 @@ The report also displays 30-session maximum drawdown. These are heuristic observ
 - It never imports `alpaca_purchase.py`, uses the trading API, or dispatches a purchase workflow.
 - No secrets are written to the output or logs.
 - Missing credentials, failed HTTP requests, unexpected API payloads, and no eligible symbols cause a failed run rather than a misleading report.
-- Alpaca plan entitlements or feed restrictions can cause API errors. If the job fails, inspect the error summary without sharing secrets.
+- An **HTTP 401** means the Alpaca service rejected the supplied key pair. In repository **Settings → Secrets and variables → Actions**, rotate/replace `ALPACA_API_KEY` and `ALPACA_API_SECRET` together with a currently active, matching **paper-account** key ID and secret. The workflow cannot repair revoked or mismatched credentials; do not post keys in issues, logs, run inputs or chats. Do not switch to live trading credentials as a workaround.
+- After replacing both secrets, manually run **Alpaca Paper API Connection Test** (a GET-only check), then **Daily Stock Discovery (Read Only)**. A paper account check passing does not guarantee separate market-data entitlement; verify the scanner's result too.
+- HTTP 403 or other errors can reflect feed entitlements or API policy. Inspect the redacted error and confirm the account has access to the IEX historical daily-bar feed. Do not bypass authentication or substitute synthetic bars for a real watchlist.
 - The existing approved paper-order workflow remains separate and unchanged.
 
 For offline tests: `python -m unittest tests.test_stock_discovery` (or `python -m unittest discover -s tests -p 'test_stock_discovery.py'`).
