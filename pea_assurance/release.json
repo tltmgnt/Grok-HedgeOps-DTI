@@ -1,20 +1,23 @@
 {
   "schema_version": 1,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "canonical_repository": "tltmgnt/ResearchOs",
   "repository": "tltmgnt/Grok-HedgeOps-DTI",
   "domain": "Research and decision assurance",
   "domain_adapter_candidate": "scheduled_assurance.py",
   "domain_adapter_integrated": false,
   "files_sha256": {
-    "pea_assurance/test_measurement.py": "63053dc62816929173cbfb93906730d2f18c39af2f5506d26a217508f37a8887",
-    "pea_assurance/__main__.py": "301aaa3dec13843e91fc20cf0ca9917cd8e8a245d5f2d42c667d566d2ff81f3c",
-    "pea_assurance/__init__.py": "7485658d06a4f1af8e74b299c4a3def6fcb0399aef44e46ab32680fb66f544a8",
-    "pea_assurance/measurement.py": "04b45c91dd850ee0dfae10b616090ed575f5f49d4fa455e39fd2ee1dc7edb7e7",
-    "pea_assurance/synthetic_example.json": "990b93b9dc54c7ddcafba5a1f56398935cb8416772a5603fbab407cb3a860b61",
     "pea_assurance/pilot_protocol.json": "157241cbaf3936624c1f7258472266f21fe45cf259e80efe9641ccba43ce21e7",
-    "pea_assurance/README.md": "e438b73ffc09660a078637670bba4387866bbbfca0a9edf0f723b858773469d5",
-    "docs/researchos/PEA_RESEARCH.md": "7784530106dc093bf42836d07976098598ab130a096d52aaf669643ce403bf48"
+    "pea_assurance/__init__.py": "52bbb8d9baa4bf13ac50f1808a43d32b98c884f38e7ad445a00483a91010efd7",
+    "pea_assurance/measurement.py": "04b45c91dd850ee0dfae10b616090ed575f5f49d4fa455e39fd2ee1dc7edb7e7",
+    "pea_assurance/__main__.py": "301aaa3dec13843e91fc20cf0ca9917cd8e8a245d5f2d42c667d566d2ff81f3c",
+    "pea_assurance/synthetic_example.json": "990b93b9dc54c7ddcafba5a1f56398935cb8416772a5603fbab407cb3a860b61",
+    "pea_assurance/verify_release.py": "ab9b59cb310f2d9ba704e8600d0c2c55d4a4e446953898a9f20eee5972bdc9b5",
+    ".github/workflows/pea-assurance.yml": "49d1ed8ad34769763d31a08d1d5635a2662e80ca827260d0f5b290de8f82659f",
+    "pea_assurance/test_release.py": "c7ddb441d10afa1dde8884f37e955b5ca875cf753bae144a04ae7441077e319d",
+    "docs/researchos/PEA_RESEARCH.md": "7784530106dc093bf42836d07976098598ab130a096d52aaf669643ce403bf48",
+    "pea_assurance/README.md": "2d0166e2bbb533306f54eca00353b92929c1a6f7a8d9579f846fb139996e9df3",
+    "pea_assurance/test_measurement.py": "63053dc62816929173cbfb93906730d2f18c39af2f5506d26a217508f37a8887"
   },
   "empirically_validated": false
 }
