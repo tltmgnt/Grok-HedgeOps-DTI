@@ -1,0 +1,6 @@
+{
+  "data_kind": "synthetic_software_fixture_not_research_results",
+  "probabilities": [0.2, 0.8],
+  "outcomes": [0, 1],
+  "bins": 2
+}
