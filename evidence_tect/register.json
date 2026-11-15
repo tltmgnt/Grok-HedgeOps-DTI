@@ -25,6 +25,24 @@
       "deployment_authorized": false
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "cpp17-source-20261114",
+      "claim_id": "repository-scoped-claim",
+      "claim_version": 1,
+      "kind": "validation",
+      "result": "UNCERTAIN",
+      "actor": "Local automated C++ test session (not authenticated)",
+      "source_id": "cpp_model/model.cpp",
+      "method": "Exact SHA-256 fingerprint of the bounded source; historical local synthetic compilation is not independent reproduction",
+      "group": "single-local-fixture",
+      "scope": "C++17 offline synthetic source integrity only",
+      "assumptions": "Code fingerprint does not establish domain truth, independent reproduction, or real-world safety",
+      "observed_at": "2026-11-15T00:12:22Z",
+      "expires_at": "2027-11-15T00:00:00Z",
+      "artifact_path": "cpp_model/model.cpp",
+      "sha256": "562c37043a3148639d47d6efaebd843106db72902ddcce14428fa179f1f702c2"
+    }
+  ],
   "reviews": []
 }
