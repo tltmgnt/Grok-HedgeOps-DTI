@@ -1,0 +1,11 @@
+# Evidence-based TECT (local fail-closed register)
+
+Repository: `tltmgnt/Grok-HedgeOps-DTI`.
+
+This is a portable evidence register and integrity gate aligned to the *conceptual* ResearchOS/TECT policy in [ResearchOs](https://github.com/tltmgnt/ResearchOs), canonical runtime `tect_runtime` v0.1.0. It is not a replacement for the canonical controller, nor proof that other modules are integrated with it. All registered claims initially remain **UNVERIFIED**; no external independent reproduction or real-world authorization is asserted.
+
+Run `python3 evidence_tect/check.py --self-test` then `python3 evidence_tect/check.py`. CI executes both, using only synthetic self-tests and repository-local records. An exit code of 0 means **record consistency only**, never truth, performance superiority, policy approval, or safe deployment.
+
+For each claim, record a versioned statement, bounded scope, provenance anchor, assumptions, limitations, dependencies and declared state. Evidence records must bind claim ID/version, kind (validation, attack, reproduction, contradiction), PASS/FAIL/UNCERTAIN, actor, source ID, method, group, scope, assumptions, timestamps with timezone, in-repository artifact path, and matching SHA-256 digest. Attack records require one of the three canonical attack classes. Review records must bind scope, reviewer, policy version, time window, and checked artifact digest. Missing, future, expired, tampered, conflicting, or revision-mismatched records fail checks. Promotion requires passing validation; stronger states add attack coverage, separately declared reproduction, and review. **ASSURED always blocks without an external trust and governance mechanism** (not implemented here).
+
+Known limits: SHA-256 integrity is not source authentication; different declared provenance groups do not prove independent observers; a self-declared review is not identity verification; a synthetic PASS is not empirical reproduction; no clinical, trading, civic, defense, robot, facility, or laboratory action is authorized. New evidence must be independently sourced, rights-cleared and scoped. Existing domain tests and `docs/researchos/` artifacts remain authoritative only for what they actually demonstrate.
