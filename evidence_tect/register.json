@@ -1,0 +1,30 @@
+{
+  "schema_version": "tect-evidence-v1",
+  "repository": "tltmgnt/Grok-HedgeOps-DTI",
+  "canonical_tect": {
+    "repository": "tltmgnt/ResearchOs",
+    "runtime": "tect_runtime",
+    "version": "0.1.0"
+  },
+  "policy_version": "1.0",
+  "independent_reproduction_verified": false,
+  "deployment_authorized": false,
+  "claims": [
+    {
+      "id": "repository-scoped-claim",
+      "version": 1,
+      "statement": "The repository contains offline and paper-trading decision-support tooling; real trading permissions, profitability, and independent scientific performance are not established.",
+      "scope": "Documented or offline research only",
+      "source_ref": "README.md",
+      "limitations": "No authenticated independent scientific reproduction, live-provider acceptance, or production authorization is established by this register.",
+      "assumptions": [
+        "The repository README describes a proposed or bounded scope, not externally established truth."
+      ],
+      "state": "UNVERIFIED",
+      "dependencies": [],
+      "deployment_authorized": false
+    }
+  ],
+  "evidence": [],
+  "reviews": []
+}
