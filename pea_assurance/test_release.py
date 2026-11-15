@@ -1,6 +1,7 @@
 """Synthetic failure controls for the release consistency checker."""
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,9 +10,9 @@ from pea_assurance.verify_release import REQUIRED_FILES, VERSION, verify_release
 
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        self.root = Path(directory)
         for name in REQUIRED_FILES:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
