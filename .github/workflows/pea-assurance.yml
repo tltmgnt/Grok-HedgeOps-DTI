@@ -1,0 +1,26 @@
+name: PEA software consistency
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  pea-consistency:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Verify release inventory and research scope
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: python -m pea_assurance.verify_release --repository "$EXPECTED_REPOSITORY"
+      - name: Synthetic measurement and integrity failure controls
+        run: python -m unittest pea_assurance.test_measurement pea_assurance.test_release -v
+      - name: Offline measurement CLI smoke test
+        run: python -m pea_assurance pea_assurance/synthetic_example.json

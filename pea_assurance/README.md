@@ -30,6 +30,28 @@ The fixture is synthetic and returns Brier score 0.04 and ECE 0.2, within
 floating-point precision. These numbers test arithmetic; they are not pilot
 findings. The CLI exits 2 for invalid measurement data.
 
+## Release consistency
+
+Release 0.1.1 adds a dependency-free local consistency checker:
+
+```sh
+python -m pea_assurance.verify_release --repository OWNER/REPOSITORY
+python -m unittest pea_assurance.test_measurement pea_assurance.test_release -v
+```
+
+Replace OWNER/REPOSITORY with this checkout's exact GitHub owner and repository.
+The dedicated PEA workflow runs the checker, all 20 synthetic tests and the
+measurement CLI on pull requests and pushes to main. It has read-only repository
+permissions, installs no project dependencies and makes no model/provider calls.
+It is not scheduled monitoring or a scientific assurance evaluation.
+
+The checker requires the complete file inventory, SHA-256 digests, matching
+repository/version/domain metadata, the white-paper digest, and explicit
+unvalidated/advisory scope. Tampering, omitted files, paths escaping the checkout
+and unsupported scope claims fail with exit 2. A consistent local manifest is
+not an authenticated release signature: changing both files and their hashes can
+still produce internally consistent records. Independent validation remains open.
+
 ## Implemented measurement contract
 
 `calibration(probabilities, outcomes, bins=10)` consumes aligned binary claim
