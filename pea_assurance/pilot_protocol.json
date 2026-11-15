@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "Psychometric Epistemic Assurance blinded pilot",
+  "status": "proposed_not_preregistered_not_executed",
+  "conditions": ["human_evaluators", "single_model", "unstructured_multi_agent", "tect_controlled"],
+  "ablation": "Compare TECT with versus without PEA using the same tasks and budgets",
+  "primary_question": "Can psychometrically calibrated evidence and validation measures improve accuracy, reproducibility and interpretability of scoped TECT assurance decisions?",
+  "primary_endpoint": "Held-out false acceptance rate at matched coverage",
+  "secondary_endpoints": ["binary_brier", "equal_width_ece", "pairwise_agreement", "independent_reproduction_rate", "audit_reconstruction_time", "human_review_hours", "abstention_rate", "controller_overhead"],
+  "partition_unit": "task_and_source_cluster",
+  "partitions": ["calibration_fit", "validation_selection", "blinded_held_out_evaluation"],
+  "blinding": "Independent adjudicators receive randomized outputs without condition identifiers; assess residual unblinding",
+  "controls": ["matched_task_sets", "model_version", "data_access", "compute_and_time_budget", "reviewer_expertise", "rubric_version"],
+  "analysis": "Paired task comparisons; cluster-aware uncertainty by task/source; report denominators, missing labels, unresolved cases, exclusions, failures and all arms",
+  "required_before_execution": ["domain_and_task_bank", "construct_and_rubric_review", "independent_adjudication_plan", "power_and_sample_size_plan", "primary_effect_size", "threshold_selection_rule", "uncertainty_method", "IRT_factor_DIF_identifiability_plan", "stopping_and_exclusion_rules", "data_access_and_ethics_review_if_applicable", "timestamped_preregistration"],
+  "sample_size": null,
+  "acceptance_thresholds": null,
+  "independent_empirical_evaluation_completed": false,
+  "synthetic_examples_are_results": false
+}

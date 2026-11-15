@@ -151,3 +151,14 @@ See [current implementation and shared-core integration](docs/portfolio/INTEGRAT
 ## Topology compatibility and curriculum
 
 See the [repository-specific v2 curriculum](docs/portfolio/TOPOLOGY_CURRICULUM_V2.md) for topology choices, worked explanations, a graded laboratory and adoption boundaries. Run the offline answer key from this repository root:\n\n```sh\npython curriculum/lab.py --verify\n```\n\n[Expected answers](curriculum/expected.json) · [Recorded local validation](curriculum/VALIDATION.json). The guide states any existing dependency needed for the lab.
+
+<!-- pea-assurance:start -->
+## Psychometric Epistemic Assurance (experimental)
+
+[PEA measurement tools](pea_assurance/README.md) · [Research specification](docs/researchos/PEA_RESEARCH.md)
+
+Proposed Psychometrician × ResearchOS × TECT integration: offline calibration,
+agreement and scoped advisory decisions. Includes synthetic tests and a proposed
+blinded pilot; independent empirical validation and live controller integration
+remain outstanding.
+<!-- pea-assurance:end -->

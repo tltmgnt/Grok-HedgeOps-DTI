@@ -343,3 +343,36 @@ Sources checked November 8, 2026. References support the specific factual descri
 - **S7:** U.S. GPO, [H.R. 9925 introduced text](https://www.govinfo.gov/content/pkg/BILLS-119hr9925ih/html/BILLS-119hr9925ih.htm), July 23, 2026. [Congress.gov live record](https://www.congress.gov/bill/119th-congress/house-bill/9925) was inaccessible to the editorial reader; latest status not independently confirmed.
 
 - **S8:** DARPA, [SI Forge current program page](https://www.darpa.mil/research/programs/si-forge), checked November 8, 2026.
+
+## Appendix D — Psychometric Epistemic Assurance (proposed extension)
+
+**Extension revision:** November 15, 2026. PEA 0.1.0 experimental specification.
+
+Psychometric Epistemic Assurance (PEA) is the owner's proposed integration of
+psychometric measurement with ResearchOS claims, evidence, provenance and
+reproducibility, and TECT validation, adversarial challenges and governance.
+Its intended output is an accepted, rejected or uncertain promotion decision
+within an explicit evidence scope. Reliability and stability do not establish
+factual truth.
+
+Construct validity would define the assurance construct; reliability analyses
+would assess consistency across evaluators, models and repeats; IRT would
+investigate task difficulty; factor analysis would investigate evidence-quality
+dimensions; DIF would assess conditional task differences across models/domains;
+and calibration would compare stated probabilities with adjudicated outcomes.
+These are proposed research methods, not completed empirical findings.
+
+See [PEA research specification](PEA_RESEARCH.md) for candidate mathematical
+models, hypotheses, uncertainty requirements and blinded pilot methodology.
+A psychometrician would lead measurement design, rubric evaluation, calibration
+and invariance studies alongside domain experts and independent adjudicators.
+The pilot compares humans, single-model systems, unstructured multi-agent systems
+and TECT, including a TECT-without-PEA ablation.
+
+The [offline experimental module](../../pea_assurance/README.md) supplies binary
+Brier/ECE diagnostics, pairwise agreement and advisory obligation aggregation.
+Its tests use synthetic fixtures. It does not authenticate evidence, fit latent
+models, execute a human study or authorize production state transitions.
+**No independent empirical validation or demonstrated performance improvement is
+claimed.** Existing scope, governance and execution restrictions remain in force.
+
