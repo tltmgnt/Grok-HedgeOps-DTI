@@ -7,10 +7,10 @@
   "domain_adapter_candidate": "scheduled_assurance.py",
   "domain_adapter_integrated": false,
   "files_sha256": {
-    "pea_assurance/test_measurement.py": "f47bb89c8940ce67c33ca598f1a2d7ffee3423463978dbacfc3910efe0560ea2",
+    "pea_assurance/test_measurement.py": "63053dc62816929173cbfb93906730d2f18c39af2f5506d26a217508f37a8887",
     "pea_assurance/__main__.py": "301aaa3dec13843e91fc20cf0ca9917cd8e8a245d5f2d42c667d566d2ff81f3c",
     "pea_assurance/__init__.py": "7485658d06a4f1af8e74b299c4a3def6fcb0399aef44e46ab32680fb66f544a8",
-    "pea_assurance/measurement.py": "ff7e61f14bf11dc6d7ffbd2f588b512851091a804d612288adb80e802888f3b5",
+    "pea_assurance/measurement.py": "04b45c91dd850ee0dfae10b616090ed575f5f49d4fa455e39fd2ee1dc7edb7e7",
     "pea_assurance/synthetic_example.json": "990b93b9dc54c7ddcafba5a1f56398935cb8416772a5603fbab407cb3a860b61",
     "pea_assurance/pilot_protocol.json": "157241cbaf3936624c1f7258472266f21fe45cf259e80efe9641ccba43ce21e7",
     "pea_assurance/README.md": "e438b73ffc09660a078637670bba4387866bbbfca0a9edf0f723b858773469d5",

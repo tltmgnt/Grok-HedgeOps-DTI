@@ -15,13 +15,13 @@ def calibration(probabilities, outcomes, bins=10):
     No automatic calibration fitting, missing-label imputation, independence
     inference, or empirical validity claim is made by these diagnostics.
     """
-    if type(bins) is not int or not 1 <= bins <= 1000:
+    if not isinstance(bins, int) or isinstance(bins, bool) or not 1 <= bins <= 1000:
         raise ValueError("bins must be an integer in [1, 1000]")
     p, y = list(probabilities), list(outcomes)
     if len(p) != len(y):
         raise ValueError("probabilities and outcomes must have equal length")
     p = [_probability(v) for v in p]
-    if any(type(v) is not int or v not in (0, 1) for v in y):
+    if any(not isinstance(v, int) or isinstance(v, bool) or v not in (0, 1) for v in y):
         raise ValueError("outcomes must be adjudicated integers 0 or 1; omit unresolved cases explicitly")
     n = len(p)
     cells = [[] for _ in range(bins)]

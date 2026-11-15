@@ -39,9 +39,9 @@ class MeasurementTests(unittest.TestCase):
                 agreement(a, b)
 
     def decision(self, **kwargs):
-        args = dict(claim_id="synthetic-c1", scope="synthetic arithmetic only",
-                    policy_version="test-v1", evidence_refs=["fixture:e1"],
-                    checks={k: "PASS" for k in ("validity", "calibration", "provenance", "reproduction", "adversarial", "governance")})
+        args = {"claim_id": "synthetic-c1", "scope": "synthetic arithmetic only",
+                "policy_version": "test-v1", "evidence_refs": ["fixture:e1"],
+                "checks": {k: "PASS" for k in ("validity", "calibration", "provenance", "reproduction", "adversarial", "governance")}}
         args.update(kwargs)
         return scoped_decision(**args)
 
@@ -61,7 +61,7 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(self.decision(checks={"validity": "FAIL", "calibration": "ERROR"})["decision"], "rejected")
 
     def test_no_scope_or_unknown_check(self):
-        for args in [dict(scope=""), dict(checks={"truth": "PASS"}), dict(checks={"validity": "yes"}), dict(evidence_refs="e1")]:
+        for args in [{"scope": ""}, {"checks": {"truth": "PASS"}}, {"checks": {"validity": "yes"}}, {"evidence_refs": "e1"}]:
             with self.assertRaises(ValueError):
                 self.decision(**args)
 
