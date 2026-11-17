@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "mode": "synthetic",
+  "name": "Synthetic cloud-capacity allocation",
+  "capacity": 100,
+  "source": "Fictional capacity and participant requests; not a real venue.",
+  "review": "",
+  "requests": [
+    {
+      "id": "r1",
+      "participant": "A",
+      "units": 60
+    },
+    {
+      "id": "r2",
+      "participant": "B",
+      "units": 50
+    },
+    {
+      "id": "r1",
+      "participant": "A",
+      "units": 60
+    },
+    {
+      "id": "r3",
+      "participant": "C",
+      "units": 30
+    }
+  ],
+  "repairs": [
+    {
+      "name": "Idempotent admission",
+      "deduplicate": true,
+      "participantCap": null,
+      "allocation": "fifo"
+    },
+    {
+      "name": "Bounded proportional allocation",
+      "deduplicate": true,
+      "participantCap": 50,
+      "allocation": "pro-rata"
+    }
+  ]
+}
