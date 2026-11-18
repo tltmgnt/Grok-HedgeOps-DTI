@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "entries": [
+    {
+      "id": "known-xor-transitivity",
+      "axioms": [
+        {
+          "variables": [
+            "a",
+            "b"
+          ],
+          "rhs": 0
+        },
+        {
+          "variables": [
+            "b",
+            "c"
+          ],
+          "rhs": 0
+        }
+      ],
+      "conclusion": {
+        "variables": [
+          "a",
+          "c"
+        ],
+        "rhs": 0
+      }
+    },
+    {
+      "id": "known-xor-four-chain",
+      "axioms": [
+        {
+          "variables": [
+            "a",
+            "b"
+          ],
+          "rhs": 1
+        },
+        {
+          "variables": [
+            "b",
+            "c"
+          ],
+          "rhs": 0
+        },
+        {
+          "variables": [
+            "c",
+            "d"
+          ],
+          "rhs": 1
+        }
+      ],
+      "conclusion": {
+        "variables": [
+          "a",
+          "d"
+        ],
+        "rhs": 0
+      }
+    }
+  ]
+}

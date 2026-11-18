@@ -1,0 +1,59 @@
+name: MathOS X automatic checked-code proposals
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 13 * * 2'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: mathosx-reviewed-code-proposals
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check finite proof engine and replay certificates
+        run: python -m unittest discover -s tests -p 'test_mathosx_autonomy.py' -v
+      - name: Generate deterministic, certificate-backed Python module
+        run: python -m mathosx.autonomy --generate-code --output-dir artifacts/mathosx-autonomous
+      - name: Recheck generated module and all certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m mathosx.autonomy --check-code
+          python -m unittest discover -s tests -p 'test_mathosx_autonomy.py' -v
+          python -c 'from mathosx.generated_theorems import recheck; assert recheck()'
+      - name: Propose code change for human review (no auto-merge)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain -- mathosx/generated_theorems.py)" ]]; then
+            echo "Generated code unchanged; no PR needed."
+            exit 0
+          fi
+          branch="automation/mathosx-finite-proofs-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- mathosx/generated_theorems.py
+          git diff --cached --exit-code --quiet && exit 0
+          git commit -m "chore(mathosx): propose checked finite XOR proof records"
+          git push --set-upstream origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Automated finite XOR proof-record update (review required)" \
+            --body "Generated deterministically from reviewed parity-problem inputs. All certificates are independently replayed and tested. No global mathematical novelty is claimed. No automatic merge is enabled. Review scope and proof evidence before merging."
