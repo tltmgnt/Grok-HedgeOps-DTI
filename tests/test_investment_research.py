@@ -112,3 +112,27 @@ class ResearchTests(unittest.TestCase):
             report = json.loads((Path(tmp)/'research.json').read_text())
             self.assertEqual(report['data_errors'], ['MARKET_DATA_NOT_CONFIGURED'])
             self.assertTrue((Path(tmp)/'summary.md').exists())
+
+    def test_scheduled_session_controls_quote_collection_and_exit_status(self):
+        cases = [
+            ({'is_open': False}, 0, 'CLOSED', []),
+            ({'is_open': True}, 1, 'OPEN', ['MSFT: QUOTE_UNAVAILABLE']),
+            ({'is_open': 'false'}, 1, None, ['RESEARCH_UNAVAILABLE_CHECK_POLICY_AND_PROVIDER']),
+        ]
+        for clock_response, code, session, errors in cases:
+            with (self.subTest(clock=clock_response), tempfile.TemporaryDirectory() as tmp,
+                  patch.dict('os.environ', {'ALPACA_API_KEY': 'fixture', 'ALPACA_API_SECRET': 'fixture'}),
+                  patch('paper_opportunity_intelligence.request_json', return_value=clock_response) as get,
+                  patch('investment_research.collect_quotes', return_value=({}, errors)) as quotes):
+                self.assertEqual(main(['--scheduled', '--policy', str(POLICY), '--output', tmp]), code)
+                get.assert_called_once_with('https://paper-api.alpaca.markets', '/v2/clock', 'fixture', 'fixture')
+                self.assertEqual(quotes.call_count, int(session == 'OPEN'))
+                report = json.loads((Path(tmp)/'research.json').read_text())
+                self.assertEqual(report.get('market_session'), session)
+                self.assertEqual(report['data_errors'], errors)
+                if session == 'CLOSED':
+                    self.assertEqual(len(report['assessments']), 4)
+                    for row in report['assessments']:
+                        self.assertIn('CURRENT_QUOTE_REQUIRED', row['failed_gates'])
+                        self.assertFalse(row['order_authority'])
+                    self.assertIn('Regular market session: CLOSED', (Path(tmp)/'summary.md').read_text())
