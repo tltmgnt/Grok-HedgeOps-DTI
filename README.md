@@ -24,6 +24,23 @@ its original specification is supplied and mapped to implemented controls.
 
 **Research prototype with multiple implemented modules.** The repository includes `hedgeops_team` orchestration/audit/feedback, `hedgeops` evidence and workflow modules, `arbitration.py`, structured-output tests, offline release checks and explicitly scoped paper-trading tools. These do not establish profitable decisions, independent scientific validation or unrestricted autonomous execution. Existing broker permissions and approval boundaries are unchanged.
 
+## Decision Topology v1 (offline, advisory only)
+
+The optional [Decision Topology v1](docs/DECISION_TOPOLOGY_V1.md) adds
+bounded typed dependency graphs for both the existing four-role
+`hedgeops_team` decision report and the Grok agent's structured JSON
+report. Use `HedgeOpsTeam().analyze_with_topology(bars, portfolio)` or
+`build_structured_report_topology(report)` to inspect evidence links,
+disagreement, warnings, gaps and review reasons without granting authority.
+
+Separate temporal what-if branches and the existing static, advisory market
+regime policy provide scenario comparisons. Ten overlapping decision-method
+families are cataloged, with **four bounded capabilities** and six
+research-only proposals. These additions do **not** change paper/live broker
+execution, credentials, approvals, risk checks, or scheduled workflows.
+Structural validation is not market prediction, evidence authentication, or
+causal proof.
+
 ## Review and research options
 
 Choose a path for [independent prototype review, comparative research, or operational validation](docs/REVIEW_AND_RESEARCH_OPTIONS.md). The guide defines the evidence required for each objective, records the scope of the initial offline review, and provides a submission checklist. These paths are plans, not completed certifications.
