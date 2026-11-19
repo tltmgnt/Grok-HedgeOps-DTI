@@ -116,6 +116,17 @@ class HedgeOpsTeam:
             raise ValueError("require_independent_strategy must be bool")
         self.require_independent_strategy = require_independent_strategy
 
+    def analyze_with_topology(self, bars, portfolio):
+        """Add a validated, review-only topology without changing analyze().
+
+        This method never grants trading authority. The graph is a projection
+        of the existing deterministic report, not an independently trusted verdict.
+        """
+        from .decision_topology import build_team_topology
+
+        report = self.analyze(bars, portfolio)
+        return report, build_team_topology(report)
+
     def analyze(self, bars, portfolio):
         # Freeze the validated inputs before invoking potentially untrusted adapters.
         bars = deepcopy(bars)
