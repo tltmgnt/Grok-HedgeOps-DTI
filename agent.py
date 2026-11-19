@@ -55,6 +55,18 @@ def analyze(problem: str) -> dict:
     return validate_report(content)
 
 
+def analyze_with_topology(problem: str):
+    """Return the existing Grok report with an unverified, non-executing DAG.
+
+    Model-generated evidence is not verified by this structural projection.
+    All existing API-key and provider behavior remains inside analyze().
+    """
+    from hedgeops_team.decision_topology import build_structured_report_topology
+
+    report = analyze(problem)
+    return report, build_structured_report_topology(report)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit('Usage: python agent.py "Describe the problem to analyze"')
