@@ -49,6 +49,8 @@ jobs:
         run: |
           if [ "$REQUEST_PAPER_ENTRY" = true ]; then
             python investment_research.py --paper-entry --horizon "$ENTRY_HORIZON"
+          elif [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            python investment_research.py --scheduled
           else
             python investment_research.py
           fi

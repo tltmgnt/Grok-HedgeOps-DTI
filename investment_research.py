@@ -152,6 +152,14 @@ def collect_quotes(policy, *, key, secret, clock=None, get=None):
     return quotes, errors
 
 
+def scheduled_market_session(key, secret):
+    from paper_opportunity_intelligence import PAPER, request_json
+    market = request_json(PAPER, '/v2/clock', key, secret)
+    if not isinstance(market, dict) or not isinstance(market.get('is_open'), bool):
+        raise ValueError('Market clock unavailable')
+    return 'OPEN' if market['is_open'] else 'CLOSED'
+
+
 def save_report(report, output):
     output.mkdir(parents=True, exist_ok=True)
     (output / 'research.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n', encoding='utf-8')
@@ -159,6 +167,8 @@ def save_report(report, output):
              '', '| Symbol | Horizon | Status | Failed gates |', '| --- | --- | --- | --- |']
     for row in report.get('assessments', []):
         lines.append(f"| {row['symbol']} | {row['horizon']} | {row['status']} | {', '.join(row['failed_gates']) or 'None'} |")
+    if 'market_session' in report:
+        lines.extend(['', 'Regular market session: ' + report['market_session']])
     lines.extend(['', 'Configuration and data: ' + ', '.join(report.get('data_errors', [])),
                   '', 'Paper execution: ' + report.get('execution', {}).get('decision', 'NOT_REQUESTED')])
     (output / 'summary.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
@@ -168,7 +178,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--policy', type=Path, default=Path('research/investment_policy.json'))
     parser.add_argument('--output', type=Path, default=Path('investment-output'))
-    parser.add_argument('--paper-entry', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--paper-entry', action='store_true')
+    mode.add_argument('--scheduled', action='store_true',
+                      help='Skip quote collection when the regular market session is closed')
     parser.add_argument('--horizon', choices=HORIZONS, default='1-2y')
     args = parser.parse_args(argv)
     report = {'assessments': [], 'order_authority': False, 'data_errors': []}
@@ -176,8 +189,15 @@ def main(argv=None):
     try:
         policy = validate(json.loads(args.policy.read_text(encoding='utf-8')))
         key, secret = os.getenv('ALPACA_API_KEY', ''), os.getenv('ALPACA_API_SECRET', '')
-        quotes, errors = collect_quotes(policy, key=key, secret=secret)
-        report = build_report(policy, quotes, now=datetime.now(timezone.utc))
+        session = scheduled_market_session(key, secret) if args.scheduled and key and secret else None
+        if session == 'CLOSED':
+            report = build_report(policy, {}, now=datetime.now(timezone.utc), origin='MARKET_CLOSED')
+            errors = []
+        else:
+            quotes, errors = collect_quotes(policy, key=key, secret=secret)
+            report = build_report(policy, quotes, now=datetime.now(timezone.utc))
+        if session:
+            report['market_session'] = session
         report['data_errors'] = errors
         code = 1 if errors else 0
         if args.paper_entry:
@@ -196,7 +216,13 @@ def main(argv=None):
         report['data_errors'] = ['RESEARCH_UNAVAILABLE_CHECK_POLICY_AND_PROVIDER']
         code = 1
     save_report(report, args.output)
-    print('Investment research report saved; order results require broker reconciliation.')
+    print('Investment research report saved.')
+    if report['data_errors']:
+        print('Configuration and data: ' + ', '.join(report['data_errors']))
+    if report.get('market_session') == 'CLOSED':
+        print('Regular market session closed. Quote collection skipped.')
+    if args.paper_entry:
+        print('Paper execution: ' + report.get('execution', {}).get('decision', 'UNAVAILABLE'))
     return code
 
 
