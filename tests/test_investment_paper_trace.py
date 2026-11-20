@@ -117,3 +117,93 @@ class PaperTraceTests(unittest.TestCase):
             build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=dict(
                 evidence, fills=[dict(first, executed_at="2026-11-10T15:04:00Z")]
             ))
+
+    def test_account_interval_reconciles_overlapping_orders_and_transfers(self):
+        from investment_paper_portfolio import reconcile_portfolio
+
+        report, intents, posts = self.run_fixture(reviewed_policy())
+        first = dict(posts[0], id="synthetic-order", status="filled", filled_qty="0.01",
+                     filled_avg_price="500", submitted_at="2026-11-10T15:01:00Z",
+                     updated_at="2026-11-10T15:04:00Z")
+        second_id = posts[0]["client_order_id"].replace("1-2y", "5y")
+        second = dict(first, id="second-order", client_order_id=second_id,
+                      submitted_at="2026-11-10T15:02:00Z", updated_at="2026-11-10T15:03:00Z")
+        second_report = {**report, "research_run_id": "second-run", "execution": {
+            **report["execution"], "broker_order_id": second["id"], "client_order_id": second_id,
+            "horizon": "5y",
+        }}
+        second_intent = {**intents[0], "research_run_id": "second-run", "horizon": "5y",
+                         "assessment": {**intents[0]["assessment"], "horizon": "5y"},
+                         "order": dict(posts[0], client_order_id=second_id)}
+        identity = {"account_ref": "fixture", "currency": "USD"}
+        fill = dict(identity, symbol="MSFT", side="buy", qty="0.01", price="500", fee="0.01")
+        cash = dict(identity, movement_id="deposit", amount="15", occurred_at="2026-11-10T15:02:30Z")
+        bundle = {
+            "mode": "PAPER_ONLY", "complete_interval": True, "account_ref": "fixture",
+            "before": dict(identity, observed_at="2026-11-10T15:00:00Z", cash="100", positions={"AAPL": "1"}),
+            "after": dict(identity, observed_at="2026-11-10T15:05:00Z", cash="104.98",
+                          positions={"AAPL": "1", "MSFT": "0.02"}),
+            "orders": [
+                {"report": report, "intents": intents, "paper_order_snapshot": first},
+                {"report": second_report, "intents": [second_intent], "paper_order_snapshot": second},
+            ],
+            "fills": [
+                dict(fill, fill_id="a", broker_order_id=first["id"], executed_at="2026-11-10T15:04:00Z"),
+                dict(fill, fill_id="b", broker_order_id=second["id"], executed_at="2026-11-10T15:03:00Z"),
+            ],
+            "cash_movements": [cash, dict(cash, amount="15.00")],
+        }
+        result = reconcile_portfolio(bundle)
+        self.assertEqual(result["state"], "BALANCES_MATCH")
+        self.assertEqual(result["positions"]["MSFT"]["expected"], "0.02")
+        self.assertEqual(result["cash_usd"]["expected"], "104.98")
+        self.assertEqual(result["cash_usd"]["fees"], "0.02")
+        self.assertEqual(result["duplicate_cash_movement_count"], 1)
+        self.assertEqual(reconcile_portfolio(dict(bundle, orders=list(reversed(bundle["orders"])))), result)
+        discrepancies = reconcile_portfolio(dict(
+            bundle, after=dict(bundle["after"], cash="105", positions={"MSFT": "0.02"}), fills=bundle["fills"][:1]
+        ))
+        self.assertCountEqual(discrepancies["discrepancies"], [
+            "ORDER_EVIDENCE_MISMATCH", "POSITION_QUANTITY_MISMATCH", "CASH_BALANCE_MISMATCH",
+        ])
+        self.assertEqual(discrepancies["positions"]["AAPL"]["difference"], "-1")
+        with self.assertRaisesRegex(ValueError, "fill ID reused"):
+            reconcile_portfolio(dict(bundle, fills=[bundle["fills"][0], dict(bundle["fills"][1], fill_id="a")]))
+        with self.assertRaisesRegex(ValueError, "conflicting cash movement"):
+            reconcile_portfolio(dict(bundle, cash_movements=[cash, dict(cash, amount="14")]))
+        with self.assertRaisesRegex(ValueError, "untraced order"):
+            reconcile_portfolio(dict(bundle, orders=bundle["orders"][:1]))
+
+        settle = dict(identity, settled_at="2026-11-10T15:04:30Z")
+        paid = dict(settle, settlement_id="old-payment", obligation_id="opening", amount="-2")
+        partial = dict(settle, settlement_id="partial-payment", obligation_id="a", amount="-3.01")
+        evidence = {
+            "before": dict(identity, observed_at=bundle["before"]["observed_at"],
+                           settled_cash="102", obligations={"opening": "-2"}),
+            "after": dict(identity, observed_at=bundle["after"]["observed_at"],
+                          settled_cash="111.99", obligations={"a": "-2", "b": "-5.01"}),
+            "events": [partial, paid, dict(paid, amount="-2.00")],
+        }
+        audit = reconcile_portfolio(dict(bundle, settlement=evidence))
+        self.assertEqual(audit["state"], "BALANCES_MATCH")
+        settlement = audit["settlement"]
+        self.assertEqual(settlement["state"], "SETTLEMENT_MATCHES")
+        self.assertEqual(settlement["settled_cash_usd"]["expected"], "111.99")
+        self.assertEqual(settlement["expected_open_obligations"], {"a": "-2.00", "b": "-5.01"})
+        self.assertEqual(settlement["duplicate_settlement_count"], 1)
+
+        # A wrong cash and obligation pair can preserve the bridge and still fail replay.
+        changed = dict(evidence, after=dict(evidence["after"], settled_cash="112.99",
+                                           obligations={"a": "-3", "b": "-5.01"}))
+        audit = reconcile_portfolio(dict(bundle, settlement=changed))
+        self.assertEqual(audit["discrepancies"], ["SETTLEMENT_MISMATCH"])
+        self.assertEqual(audit["settlement"]["discrepancies"], [
+            "SETTLED_CASH_MISMATCH", "OPEN_OBLIGATION_MISMATCH",
+        ])
+        for extra, message in (
+            (dict(partial, amount="-6"), "exceeds or reverses"),
+            (dict(partial, settled_at="2026-11-10T15:03:30Z"), "valid interval"),
+            (dict(partial, obligation_id="unknown"), "known paper obligation"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                reconcile_portfolio(dict(bundle, settlement=dict(evidence, events=[paid, extra])))

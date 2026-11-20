@@ -177,3 +177,47 @@ conflicting copies. It compares cumulative quantity with the order snapshot,
 checks each fill against the limit, and shows the expected and observed
 position and cash with exact differences. Source authentication, settlement
 timing, unrelated activity, and multi-order accounting require separate evidence.
+
+### Multi-order paper account reconciliation
+
+Run `python investment_paper_portfolio.py paper-portfolio.json` to reconcile
+overlapping traced buy orders and signed non-trade cash movements against
+one pair of account snapshots. It prints JSON and exits 0 for matching
+balances, 1 for discrepancies, and 2 for invalid evidence.
+
+| Bundle field | Contents |
+| --- | --- |
+| `mode`, `complete_interval`, `account_ref` | `PAPER_ONLY`, true, and a local paper account alias |
+| `before`, `after` | Complete position maps in `positions` keyed by symbol, trade-date `cash`, `observed_at`, `account_ref`, and `currency` set to `USD` |
+| `orders` | One object per order with `report`, `intents`, and `paper_order_snapshot`. The broker snapshot needs `submitted_at` and `updated_at`. |
+| `fills` | The normalized individual fill records documented above, with activity IDs unique across the account |
+| `cash_movements` | Non-trade ledger records with `movement_id`, `account_ref`, `currency`, `occurred_at`, and signed decimal-string `amount` |
+
+Include only orders submitted after the opening snapshot and obtain the
+ending order and balance records for the same cutoff. The cash movements
+may include deposits or withdrawals. Fill costs and fees are already
+accounted for by the tool. Use consistent trade-date cash and complete
+position snapshots so a symbol missing from the map can be treated as zero.
+The tool surfaces unexplained position changes, cash differences, missing
+fills, and order discrepancies. Fill corrections, sell orders, and other
+position adjustments are outside this replay contract. The
+bundle's completeness and provenance require independent confirmation.
+
+#### Optional settled-cash reconciliation
+
+Include a `settlement` object in the same bundle to reconcile trade-date
+cash to settled cash and to check the remaining obligation for each fill.
+
+| Field | Contents |
+| --- | --- |
+| `before`, `after` | `account_ref`, `currency` set to `USD`, `observed_at` matching the corresponding account snapshot, `settled_cash`, and an `obligations` map from ID to signed open USD amount |
+| `events` | `settlement_id`, `obligation_id`, `account_ref`, `currency`, `settled_at`, and signed decimal-string `amount` |
+
+Payables are negative and receivables positive. Each new buy fill records
+an obligation with its fill ID for the full purchase cost and fee. Supply
+settlement records from the export, including partial payments. The replay
+does not infer a settlement date from the execution date. Non-trade cash
+movements in this bundle must affect trade-date and settled cash together.
+The tool rejects unknown obligations, premature payments, overpayments,
+and conflicting duplicate events. It verifies both the cash-to-obligations
+bridge and each obligation's remaining amount.

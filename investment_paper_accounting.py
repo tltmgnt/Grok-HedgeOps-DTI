@@ -26,31 +26,15 @@ def _balance(snapshot, symbol, account_ref):
             _decimal(snapshot["cash"], signed=True))
 
 
-def reconcile_fills(order, reconciliation, evidence):
-    """Replay one paper buy order against its declared isolated account interval.
-
-    Source authenticity and interval completeness are the caller's responsibility.
-    Activity IDs identify executions and must be stable across exports.
-    """
-    if evidence.get("mode") != "PAPER_ONLY" or evidence.get("isolated_interval") is not True:
-        raise ValueError("normalized paper evidence must declare an isolated interval")
+def _audit_order_fills(order, reconciliation, activity, account_ref, before_at, after_at):
     if (reconciliation.get("broker_order_id") is None
             or "BROKER_ORDER_ID_MISMATCH" in reconciliation["discrepancies"]):
         raise ValueError("accounting requires an identified broker snapshot")
-    account_ref = evidence.get("account_ref")
-    if not isinstance(account_ref, str) or not account_ref or len(account_ref) > 128:
-        raise ValueError("paper account reference is required")
-    before_at, before_qty, before_cash = _balance(evidence["before"], order["symbol"], account_ref)
-    after_at, after_qty, after_cash = _balance(evidence["after"], order["symbol"], account_ref)
-    if before_at >= after_at:
-        raise ValueError("accounting snapshots must have increasing timestamps")
-
     order_updated_at = timestamp(reconciliation["broker_updated_at"])
     if order_updated_at > after_at:
         raise ValueError("broker order snapshot is newer than the balance interval")
 
     fills = {}
-    activity = evidence["fills"]
     if not isinstance(activity, list) or len(activity) > 10000:
         raise ValueError("fills must be a list of at most 10000 events")
     for event in activity:
@@ -76,11 +60,6 @@ def reconcile_fills(order, reconciliation, evidence):
         total_qty = sum((qty for _, _, qty, _, _ in ordered), Decimal(0))
         gross = sum((qty * price for _, _, qty, price, _ in ordered), Decimal(0))
         fees = sum((fee for _, _, _, _, fee in ordered), Decimal(0))
-        expected_qty = before_qty + total_qty
-        expected_cash = before_cash - gross - fees
-        position_difference = after_qty - expected_qty
-        cash_difference = after_cash - expected_cash
-
     discrepancies = []
     broker_qty = reconciliation["cumulative_filled_qty"]
     if broker_qty is None or total_qty != _decimal(broker_qty):
@@ -88,6 +67,52 @@ def reconcile_fills(order, reconciliation, evidence):
     limit = _decimal(order["limit_price"])
     if any(price > limit for _, _, _, price, _ in ordered):
         discrepancies.append("INDIVIDUAL_FILL_PRICE_ABOVE_LIMIT")
+    return {
+        "fills": ordered, "duplicate_fill_count": len(activity) - len(ordered),
+        "total_qty": total_qty, "gross_fill_cost": gross, "fees": fees,
+        "discrepancies": discrepancies,
+    }
+
+
+def _serialize_order_audit(audit):
+    return {
+        "fills": [
+            {"fill_id": event_id, "executed_at": at.isoformat(), "qty": str(qty),
+             "price": str(price), "fee": str(fee)}
+            for at, event_id, qty, price, fee in audit["fills"]
+        ],
+        "duplicate_fill_count": audit["duplicate_fill_count"],
+        "total_qty": str(audit["total_qty"]),
+        "gross_fill_cost": str(audit["gross_fill_cost"]),
+        "fees": str(audit["fees"]),
+    }
+
+
+def reconcile_fills(order, reconciliation, evidence):
+    """Replay one paper buy order against its declared isolated account interval.
+
+    Source authenticity and interval completeness are the caller's responsibility.
+    Activity IDs identify executions and must be stable across exports.
+    """
+    if evidence.get("mode") != "PAPER_ONLY" or evidence.get("isolated_interval") is not True:
+        raise ValueError("normalized paper evidence must declare an isolated interval")
+    account_ref = evidence.get("account_ref")
+    if not isinstance(account_ref, str) or not account_ref or len(account_ref) > 128:
+        raise ValueError("paper account reference is required")
+    before_at, before_qty, before_cash = _balance(evidence["before"], order["symbol"], account_ref)
+    after_at, after_qty, after_cash = _balance(evidence["after"], order["symbol"], account_ref)
+    if before_at >= after_at:
+        raise ValueError("accounting snapshots must have increasing timestamps")
+
+    audit = _audit_order_fills(order, reconciliation, evidence["fills"], account_ref, before_at, after_at)
+    with localcontext() as ctx:
+        ctx.prec = 80
+        expected_qty = before_qty + audit["total_qty"]
+        expected_cash = before_cash - audit["gross_fill_cost"] - audit["fees"]
+        position_difference = after_qty - expected_qty
+        cash_difference = after_cash - expected_cash
+
+    discrepancies = audit["discrepancies"]
     if position_difference:
         discrepancies.append("POSITION_QUANTITY_MISMATCH")
     if cash_difference:
@@ -95,15 +120,7 @@ def reconcile_fills(order, reconciliation, evidence):
     return {
         "state": "DISCREPANCY" if discrepancies or reconciliation["discrepancies"] else "BALANCES_MATCH",
         "interval": {"from_exclusive": before_at.isoformat(), "to_inclusive": after_at.isoformat()},
-        "fills": [
-            {"fill_id": event_id, "executed_at": at.isoformat(), "qty": str(qty),
-             "price": str(price), "fee": str(fee)}
-            for at, event_id, qty, price, fee in ordered
-        ],
-        "duplicate_fill_count": len(activity) - len(ordered),
-        "total_qty": str(total_qty),
-        "gross_fill_cost": str(gross),
-        "fees": str(fees),
+        **_serialize_order_audit(audit),
         "position": {"before": str(before_qty), "expected": str(expected_qty),
                      "observed": str(after_qty), "difference": str(position_difference)},
         "cash_usd": {"before": str(before_cash), "expected": str(expected_cash),
