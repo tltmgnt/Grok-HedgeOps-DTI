@@ -136,3 +136,26 @@ Future adoption should compare any topology benefit against the simpler
 existing `DecisionReport` and `validate_report()` representations on
 prespecified audit tasks before adding calibrated probabilistic or adaptive
 methods. Maintain the current execution boundary and independent risk review.
+
+## Risk veto audit and replay
+
+Graphs from `HedgeOpsTeam.analyze_with_topology()` link each triggered
+drawdown, exposure, or volatility veto to the risk assessment's input
+reference and the resulting HOLD. The veto records the observed value,
+configured limit, threshold, and comparison used by the policy.
+Price references share the `input_bars` source group and carry the last
+supplied bar timestamp when available. Portfolio references share
+`input_portfolio`. These groups identify shared inputs within one decision.
+Source authentication and freshness remain unverified.
+
+`team.replay_portfolio_risk(bars, portfolio, field="drawdown_pct", value=0.19)`
+returns before and after topologies, added and cleared review reasons,
+and a disposition-change flag. It supports drawdown and exposure with the
+deterministic strategy. A cleared gate can leave the recommendation at HOLD
+when another veto applies.
+
+To measure review value, use the same labeled single-veto and simultaneous-veto
+fixtures with `DecisionReport` and the topology. Ask reviewers to identify
+the decisive gates, give their observed values and thresholds, and explain
+whether changing one input clears HOLD. Counterbalance which format each
+reviewer sees first and record answer accuracy and time to completion.

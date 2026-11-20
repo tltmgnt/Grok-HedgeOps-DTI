@@ -6,6 +6,18 @@ from hashlib import sha256
 import json
 import math
 
+# Each gate uses the same definition for the decision and its review trace.
+RISK_GATES = (
+    ("drawdown veto", "portfolio:drawdown_pct", "max_drawdown_pct", ">="),
+    ("exposure veto", "portfolio:exposure_pct", "max_exposure_pct", ">="),
+    ("volatility veto", "close:returns", "max_daily_volatility", ">"),
+)
+
+
+def risk_gate_triggered(observed, threshold, comparison):
+    return observed >= threshold if comparison == ">=" else observed > threshold
+
+
 ACTIONS = frozenset({"BUY", "SELL", "HOLD", "REJECT"})
 
 @dataclass(frozen=True)
@@ -124,10 +136,30 @@ class HedgeOpsTeam:
         """
         from .decision_topology import build_team_topology
 
-        report = self.analyze(bars, portfolio)
-        return report, build_team_topology(report)
+        trace = {}
+        report = self._analyze(bars, portfolio, trace)
+        return report, build_team_topology(report, trace=trace)
+
+    def replay_portfolio_risk(self, bars, portfolio, *, field, value):
+        """Replay an advisory after changing one portfolio risk input."""
+        if field not in ("drawdown_pct", "exposure_pct"):
+            raise ValueError("replay requires drawdown_pct or exposure_pct")
+        if self.strategic_agent is not None:
+            raise ValueError("replay requires the deterministic strategy")
+        baseline, before = self.analyze_with_topology(bars, portfolio)
+        scenario, after = self.analyze_with_topology(bars, {**portfolio, field: value})
+        return {
+            "baseline": before,
+            "scenario": after,
+            "disposition_changed": baseline.action != scenario.action,
+            "cleared_reasons": tuple(reason for reason in baseline.reasons if reason not in scenario.reasons),
+            "added_reasons": tuple(reason for reason in scenario.reasons if reason not in baseline.reasons),
+        }
 
     def analyze(self, bars, portfolio):
+        return self._analyze(bars, portfolio)
+
+    def _analyze(self, bars, portfolio, trace=None):
         # Freeze the validated inputs before invoking potentially untrusted adapters.
         bars = deepcopy(bars)
         portfolio = deepcopy(portfolio)
@@ -160,12 +192,22 @@ class HedgeOpsTeam:
         reasons = []
         if self.require_independent_strategy and strategic_source != "external_adapter":
             reasons.append("independent strategic evidence required")
-        if p["drawdown_pct"] >= self.risk_limits.max_drawdown_pct:
-            reasons.append("drawdown veto")
-        if p["exposure_pct"] >= self.risk_limits.max_exposure_pct:
-            reasons.append("exposure veto")
-        if vol > self.risk_limits.max_daily_volatility:
-            reasons.append("volatility veto")
+        observations = {
+            "portfolio:drawdown_pct": p["drawdown_pct"],
+            "portfolio:exposure_pct": p["exposure_pct"],
+            "close:returns": vol,
+        }
+        for reason, reference, limit, comparison in RISK_GATES:
+            observed = observations[reference]
+            threshold = getattr(self.risk_limits, limit)
+            if risk_gate_triggered(observed, threshold, comparison):
+                reasons.append(reason)
+                if trace is not None:
+                    trace[reason] = {"evidence_id": reference, "limit": limit,
+                                     "observed": observed, "threshold": threshold,
+                                     "comparison": comparison}
+        if trace is not None:
+            trace["last_bar_timestamp"] = bars[-1].get("timestamp")
         if len(prices) < 5:
             reasons.append("insufficient regime history")
         if strategic_action != temporal_action:

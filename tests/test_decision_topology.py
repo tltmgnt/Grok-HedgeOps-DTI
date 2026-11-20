@@ -247,3 +247,46 @@ def test_10_family_registry_does_not_claim_unbuilt_models():
         DecisionFamily.AXIOMATIC, DecisionFamily.COUNTERFACTUAL,
         DecisionFamily.REGIME_SWITCHING, DecisionFamily.TOPOLOGICAL,
     }
+
+
+def test_drawdown_trace_and_single_input_replay():
+    team = HedgeOpsTeam()
+    inputs = portfolio(drawdown_pct=0.20)
+    result = team.replay_portfolio_risk(bars(), inputs, field="drawdown_pct", value=0.19)
+    baseline, scenario = result["baseline"], result["scenario"]
+    assert (baseline.disposition, scenario.disposition) == ("HOLD", "BUY")
+    assert result["disposition_changed"]
+    assert result["cleared_reasons"] == ("drawdown veto",)
+    assert inputs["drawdown_pct"] == 0.20
+    veto = next(node for node in baseline.nodes if node.label == "drawdown veto")
+    assert veto.attributes == {
+        "evidence_id": "portfolio:drawdown_pct", "limit": "max_drawdown_pct",
+        "observed": 0.20, "threshold": 0.20, "comparison": ">=",
+    }
+    source = next(node for node in baseline.nodes
+                  if node.label == "portfolio:drawdown_pct")
+    assert DecisionEdge(source.node_id, veto.node_id, EdgeKind.INFORMS) in baseline.edges
+    assert DecisionEdge(veto.node_id, "advisory", EdgeKind.EXPLAINS) in baseline.edges
+    assert source.attributes == {"verified": False, "source_group": "input_portfolio"}
+    price_refs = [node for node in baseline.nodes if node.label.startswith("close:")]
+    assert len(price_refs) > 1
+    assert all(node.attributes["source_group"] == "input_bars" and
+               node.attributes["last_observed_at"] == "2026-01-06" for node in price_refs)
+    forged = replace(veto, attributes={**veto.attributes, "observed": 0.19})
+    with pytest.raises(ValueError, match="invalid risk gate trace"):
+        validate_topology(replace(baseline, nodes=tuple(
+            forged if node == veto else node for node in baseline.nodes
+        )))
+
+
+def test_risk_replay_keeps_other_vetoes_and_disallows_adapters():
+    team = HedgeOpsTeam()
+    inputs = portfolio(drawdown_pct=0.20, exposure_pct=0.25)
+    result = team.replay_portfolio_risk(bars(), inputs, field="drawdown_pct", value=0.19)
+    assert not result["disposition_changed"]
+    assert result["cleared_reasons"] == ("drawdown veto",)
+    assert result["scenario"].disposition == "HOLD"
+    with pytest.raises(ValueError, match="deterministic strategy"):
+        HedgeOpsTeam(strategic_agent=object()).replay_portfolio_risk(
+            bars(), inputs, field="drawdown_pct", value=0.19
+        )

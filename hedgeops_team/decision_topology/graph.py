@@ -11,7 +11,7 @@ from collections import deque
 from hashlib import sha256
 
 from hedgeops_team.audit import canonical_json, digest_payload
-from hedgeops_team.core import ACTIONS, DecisionReport
+from hedgeops_team.core import ACTIONS, RISK_GATES, DecisionReport, risk_gate_triggered
 from report_validation import REQUIRED_FIELDS, validate_report
 
 from .schema import DecisionEdge, DecisionNode, DecisionTopology, EdgeKind, NodeKind
@@ -96,6 +96,7 @@ def validate_topology(topology: DecisionTopology) -> None:
         (NodeKind.INPUT, NodeKind.REVIEW_REASON, EdgeKind.DESCRIBES),
         (NodeKind.INPUT, NodeKind.REPORT_FIELD, EdgeKind.DESCRIBES),
         (NodeKind.AGENT, NodeKind.DISPOSITION, EdgeKind.INFORMS),
+        (NodeKind.EVIDENCE_REF, NodeKind.REVIEW_REASON, EdgeKind.INFORMS),
         (NodeKind.EVIDENCE_REF, NodeKind.DISPOSITION, EdgeKind.INFORMS),
         (NodeKind.WARNING, NodeKind.DISPOSITION, EdgeKind.INFORMS),
         (NodeKind.REPORT_FIELD, NodeKind.DISPOSITION, EdgeKind.INFORMS),
@@ -157,6 +158,29 @@ def validate_topology(topology: DecisionTopology) -> None:
                 if ((root.node_id, n.node_id, EdgeKind.DESCRIBES) not in edge_set
                         or (n.node_id, leaf.node_id, EdgeKind.EXPLAINS) not in edge_set):
                     raise ValueError("review reason pathway incomplete")
+        risk_agent = next(n.node_id for n in nodes.values()
+                          if n.kind == NodeKind.AGENT and n.attributes.get("agent_id") == "risk")
+        for reason, reference, limit, comparison in RISK_GATES:
+            for node in nodes.values():
+                if node.kind != NodeKind.REVIEW_REASON or node.label != reason or not node.attributes:
+                    continue
+                observed = node.attributes.get("observed")
+                threshold = node.attributes.get("threshold")
+                if (node.attributes.get("evidence_id") != reference
+                        or node.attributes.get("limit") != limit
+                        or node.attributes.get("comparison") != comparison
+                        or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                               or not math.isfinite(value) or value < 0
+                               for value in (observed, threshold))
+                        or threshold > 1
+                        or not risk_gate_triggered(observed, threshold, comparison)):
+                    raise ValueError("invalid risk gate trace")
+                if not any(source.kind == NodeKind.EVIDENCE_REF
+                           and source.label == reference
+                           and (source.node_id, node.node_id, EdgeKind.INFORMS) in edge_set
+                           and (risk_agent, source.node_id, EdgeKind.CITES) in edge_set
+                           for source in nodes.values()):
+                    raise ValueError("risk gate evidence pathway incomplete")
         if (topology.disposition != "HOLD"
                 and any(n.label in _VETOES for n in nodes.values()
                         if n.kind == NodeKind.REVIEW_REASON)):
@@ -197,7 +221,7 @@ def validate_topology(topology: DecisionTopology) -> None:
             raise ValueError("structured report digest mismatch")
 
 
-def build_team_topology(report: DecisionReport) -> DecisionTopology:
+def build_team_topology(report: DecisionReport, *, trace=None) -> DecisionTopology:
     """Project the existing four-role deterministic team decision, without approval."""
     if not isinstance(report, DecisionReport) or report.paper_only is not True:
         raise ValueError("paper-only DecisionReport required")
@@ -222,6 +246,8 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
     if not isinstance(report.evidence, tuple) or not 4 <= len(report.evidence) <= 5:
         raise ValueError("four team roles plus optional adapter required")
 
+    trace = {} if trace is None else trace
+    risk_references = {}
     roles = []
     nodes = [
         DecisionNode("input", NodeKind.INPUT, "Input snapshot fingerprint",
@@ -261,8 +287,17 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
         for j, reference in enumerate(evidence_ids):
             refid = "reference:" + agent_id + ":" + str(j)
             reference = _bounded_text(reference, "evidence reference", 256)
-            nodes.append(DecisionNode(refid, NodeKind.EVIDENCE_REF, reference,
-                                      {"verified": False}))
+            attributes = {"verified": False}
+            if reference.startswith("close:"):
+                attributes.update(source_group="input_bars",
+                                  last_observed_at=trace.get("last_bar_timestamp"))
+            elif reference.startswith("portfolio:"):
+                attributes.update(source_group="input_portfolio")
+            elif reference == "adapter:failure":
+                attributes.update(source_group="strategic_adapter")
+            if agent_id == "risk":
+                risk_references[reference] = refid
+            nodes.append(DecisionNode(refid, NodeKind.EVIDENCE_REF, reference, attributes))
             edges.extend((DecisionEdge(aid, refid, EdgeKind.CITES),
                           DecisionEdge(refid, "advisory", EdgeKind.INFORMS)))
         for j, warning in enumerate(warnings):
@@ -278,7 +313,13 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
     for i, reason in enumerate(report.reasons):
         reason = _bounded_text(reason, "review reason")
         nid = "reason:" + str(i)
-        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason))
+        gate = trace.get(reason, {})
+        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason, gate))
+        if gate:
+            refid = risk_references.get(gate.get("evidence_id"))
+            if refid is None:
+                raise ValueError("risk gate evidence reference missing")
+            edges.append(DecisionEdge(refid, nid, EdgeKind.INFORMS))
         edges.extend((DecisionEdge("input", nid, EdgeKind.DESCRIBES),
                       DecisionEdge(nid, "advisory", EdgeKind.EXPLAINS)))
 
