@@ -73,3 +73,47 @@ class PaperTraceTests(unittest.TestCase):
         live = {**report, "execution": {**report["execution"], "mode": "LIVE"}}
         with self.assertRaisesRegex(ValueError, "paper execution evidence"):
             build_trace(live, intents)
+
+    def test_fill_accounting_replays_duplicates_and_reconciles_balances(self):
+        report, intents, posts = self.run_fixture(reviewed_policy())
+        snapshot = dict(posts[0], id="synthetic-order", status="partially_filled",
+                        filled_qty="0.01", filled_avg_price="500", updated_at="2026-11-10T15:03:00Z")
+        identity = {"symbol": "MSFT", "account_ref": "paper-fixture", "currency": "USD"}
+        order = {**identity, "broker_order_id": snapshot["id"], "side": "buy",
+                 "qty": "0.005", "price": "500", "fee": "0.01"}
+        first = dict(order, fill_id="a", executed_at="2026-11-10T15:01:00Z")
+        second = dict(order, fill_id="b", executed_at="2026-11-10T15:02:00Z")
+        evidence = {
+            "mode": "PAPER_ONLY", "isolated_interval": True, "account_ref": "paper-fixture",
+            "before": dict(identity, observed_at="2026-11-10T15:00:00Z", position_qty="0", cash="100"),
+            "after": dict(identity, observed_at="2026-11-10T15:04:00Z", position_qty="0.01", cash="94.98"),
+            "fills": [second, first, dict(first, qty="0.0050")],
+        }
+        audit = build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=evidence)["accounting"]
+        self.assertEqual(audit["state"], "BALANCES_MATCH")
+        self.assertEqual([fill["fill_id"] for fill in audit["fills"]], ["a", "b"])
+        self.assertEqual(audit["duplicate_fill_count"], 1)
+        self.assertEqual(audit["fees"], "0.02")
+        self.assertEqual(audit["cash_usd"]["expected"], "94.98")
+
+        changed = dict(evidence, after=dict(evidence["after"], position_qty="0.02", cash="94.97"))
+        audit = build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=changed)["accounting"]
+        self.assertEqual(audit["state"], "DISCREPANCY")
+        self.assertEqual(audit["discrepancies"], ["POSITION_QUANTITY_MISMATCH", "CASH_BALANCE_MISMATCH"])
+
+        changed = dict(evidence, fills=[first])
+        audit = build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=changed)["accounting"]
+        self.assertIn("FILL_TOTAL_VS_ORDER_SNAPSHOT", audit["discrepancies"])
+
+        with self.assertRaisesRegex(ValueError, "conflicting records"):
+            build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=dict(
+                evidence, fills=[first, dict(first, fee="0.02")]
+            ))
+        with self.assertRaisesRegex(ValueError, "fill identity"):
+            build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=dict(
+                evidence, fills=[dict(first, account_ref="other-paper-account")]
+            ))
+        with self.assertRaisesRegex(ValueError, "snapshot window"):
+            build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=dict(
+                evidence, fills=[dict(first, executed_at="2026-11-10T15:04:00Z")]
+            ))
