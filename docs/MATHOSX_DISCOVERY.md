@@ -1,0 +1,5 @@
+# MathOS × — Grok-HedgeOps-DTI research adapter
+
+Implements a **research-only, non-operational**, offline adaptation of [MathOS ×](https://github.com/tltmgnt/MathOS/pull/39). The 56 research prompts are generic mathematics prompts (seven frontiers, four directions, two depths) and **not** a validated theory of Grok-HedgeOps-DTI. Finite causal-abstraction and GF(2) parity experiments provide bounded counterexamples, not new theorems.
+
+Run `python -m unittest discover -s tests -p 'test_mathosx_discovery.py' -v`; then `python -m mathosx.discovery --limit 16`. Human reviewers may run `python -m mathosx.discovery --rate-question causal-abstraction:invent:research --outcome useful --evidence-ref review/example-1 --reviewer reviewer-id` and submit the feedback JSON change through normal review. These ratings change research priority, not proof validity, code, or real-world decisions. CI is read-only, triggered by PR/manual request, no secrets, model charges, or auto-merges. All discoveries are **NOT_CERTIFIED** pending independent review.

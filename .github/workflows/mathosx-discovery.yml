@@ -1,0 +1,32 @@
+name: MathOS X bounded discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mathosx/**'
+      - 'tests/test_mathosx_discovery.py'
+      - '.github/workflows/mathosx-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.11'
+      - name: Test exact bounded mathematical probes and feedback guardrails
+        run: python -m unittest discover -s tests -p 'test_mathosx_discovery.py' -v
+      - name: Generate reproducible unverified research questions
+        run: python -m mathosx.discovery --limit 16 --output-dir artifacts/mathosx > /dev/null
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mathosx-discovery-report
+          path: artifacts/mathosx/discovery_report.json
+          retention-days: 14
