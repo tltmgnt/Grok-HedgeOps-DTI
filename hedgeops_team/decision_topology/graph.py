@@ -11,7 +11,7 @@ from collections import deque
 from hashlib import sha256
 
 from hedgeops_team.audit import canonical_json, digest_payload
-from hedgeops_team.core import ACTIONS, DecisionReport
+from hedgeops_team.core import ACTIONS, MIN_REGIME_BARS, RISK_GATES, DecisionReport, _parse_timestamp, risk_gate_triggered
 from report_validation import REQUIRED_FIELDS, validate_report
 
 from .schema import DecisionEdge, DecisionNode, DecisionTopology, EdgeKind, NodeKind
@@ -44,6 +44,70 @@ def _confidence(value: object) -> float:
             or not math.isfinite(value) or not 0 <= value <= 1):
         raise ValueError("invalid confidence")
     return float(value)
+
+
+def _validate_team_trace(root, leaf, nodes, edges):
+    policy = root.attributes["policy"]
+    gates = root.attributes.get("risk_gates")
+    bar_count = root.attributes.get("bar_count")
+    if (not isinstance(policy, dict) or not isinstance(policy.get("risk_limits"), dict)
+            or not isinstance(policy.get("revision"), str)
+            or not isinstance(gates, dict) or set(gates) != {item[0] for item in RISK_GATES}
+            or type(bar_count) is not int or bar_count < 2
+            or policy.get("minimum_bars") != MIN_REGIME_BARS
+            or type(policy.get("require_independent_strategy")) is not bool):
+        raise ValueError("invalid team policy trace")
+    blockers = {}
+    for reason, reference, limit, comparison in RISK_GATES:
+        gate = gates[reason]
+        if not isinstance(gate, dict):
+            raise ValueError("invalid recorded risk gate")
+        observed, threshold = gate.get("observed"), gate.get("threshold")
+        if (any(isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0 for value in (observed, threshold))
+                or threshold > 1 or threshold != policy["risk_limits"].get(limit)
+                or gate.get("limit") != limit or gate.get("evidence_id") != reference
+                or gate.get("comparison") != comparison
+                or gate.get("headroom") != threshold - observed
+                or gate.get("triggered") is not risk_gate_triggered(observed, threshold, comparison)):
+            raise ValueError("invalid recorded risk gate")
+        if gate["triggered"]:
+            blockers[reason] = {key: value for key, value in gate.items()
+                                if key not in {"headroom", "triggered"}}
+    agents = {n.attributes["agent_id"]: n for n in nodes.values() if n.kind == NodeKind.AGENT}
+    temporal, strategic = agents["temporal"], agents["strategic"]
+    comparison = {
+        "temporal_action": temporal.attributes["action"], "temporal_source": "input_bars",
+        "strategic_action": strategic.attributes["action"],
+        "strategic_source": leaf.attributes["strategic_source"],
+    }
+    if comparison["temporal_action"] != comparison["strategic_action"]:
+        blockers["strategic disagreement"] = comparison
+    if "HOLD" in (comparison["temporal_action"], comparison["strategic_action"]):
+        blockers["insufficient directional consensus"] = comparison
+    if policy["require_independent_strategy"] and comparison["strategic_source"] != "external_adapter":
+        blockers["independent strategic evidence required"] = {
+            "strategic_source": comparison["strategic_source"], "required_source": "external_adapter",
+        }
+    if bar_count < MIN_REGIME_BARS:
+        blockers["insufficient regime history"] = {
+            "source_group": "input_bars", "bar_count": bar_count, "minimum_bars": MIN_REGIME_BARS,
+        }
+    reasons = [n for n in nodes.values() if n.kind == NodeKind.REVIEW_REASON]
+    if blockers:
+        if len(reasons) != len(blockers) or {n.label: n.attributes for n in reasons} != blockers:
+            raise ValueError("review reasons do not match policy trace")
+    elif (len(reasons) != 1 or reasons[0].label != "directional consensus; within risk limits"
+          or reasons[0].attributes or leaf.attributes["disposition"] != comparison["temporal_action"]):
+        raise ValueError("advisory does not match policy trace")
+    for node in reasons:
+        required = {
+            "strategic disagreement": (temporal, strategic),
+            "insufficient directional consensus": (temporal, strategic),
+            "independent strategic evidence required": (strategic,),
+        }.get(node.label, ())
+        if any((agent.node_id, node.node_id, EdgeKind.INFORMS) not in edges for agent in required):
+            raise ValueError("strategy blocker pathway incomplete")
 
 
 def validate_topology(topology: DecisionTopology) -> None:
@@ -96,6 +160,8 @@ def validate_topology(topology: DecisionTopology) -> None:
         (NodeKind.INPUT, NodeKind.REVIEW_REASON, EdgeKind.DESCRIBES),
         (NodeKind.INPUT, NodeKind.REPORT_FIELD, EdgeKind.DESCRIBES),
         (NodeKind.AGENT, NodeKind.DISPOSITION, EdgeKind.INFORMS),
+        (NodeKind.AGENT, NodeKind.REVIEW_REASON, EdgeKind.INFORMS),
+        (NodeKind.EVIDENCE_REF, NodeKind.REVIEW_REASON, EdgeKind.INFORMS),
         (NodeKind.EVIDENCE_REF, NodeKind.DISPOSITION, EdgeKind.INFORMS),
         (NodeKind.WARNING, NodeKind.DISPOSITION, EdgeKind.INFORMS),
         (NodeKind.REPORT_FIELD, NodeKind.DISPOSITION, EdgeKind.INFORMS),
@@ -157,6 +223,31 @@ def validate_topology(topology: DecisionTopology) -> None:
                 if ((root.node_id, n.node_id, EdgeKind.DESCRIBES) not in edge_set
                         or (n.node_id, leaf.node_id, EdgeKind.EXPLAINS) not in edge_set):
                     raise ValueError("review reason pathway incomplete")
+        risk_agent = next(n.node_id for n in nodes.values()
+                          if n.kind == NodeKind.AGENT and n.attributes.get("agent_id") == "risk")
+        for reason, reference, limit, comparison in RISK_GATES:
+            for node in nodes.values():
+                if node.kind != NodeKind.REVIEW_REASON or node.label != reason or not node.attributes:
+                    continue
+                observed = node.attributes.get("observed")
+                threshold = node.attributes.get("threshold")
+                if (node.attributes.get("evidence_id") != reference
+                        or node.attributes.get("limit") != limit
+                        or node.attributes.get("comparison") != comparison
+                        or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                               or not math.isfinite(value) or value < 0
+                               for value in (observed, threshold))
+                        or threshold > 1
+                        or not risk_gate_triggered(observed, threshold, comparison)):
+                    raise ValueError("invalid risk gate trace")
+                if not any(source.kind == NodeKind.EVIDENCE_REF
+                           and source.label == reference
+                           and (source.node_id, node.node_id, EdgeKind.INFORMS) in edge_set
+                           and (risk_agent, source.node_id, EdgeKind.CITES) in edge_set
+                           for source in nodes.values()):
+                    raise ValueError("risk gate evidence pathway incomplete")
+        if "policy" in root.attributes:
+            _validate_team_trace(root, leaf, nodes, edge_set)
         if (topology.disposition != "HOLD"
                 and any(n.label in _VETOES for n in nodes.values()
                         if n.kind == NodeKind.REVIEW_REASON)):
@@ -197,7 +288,7 @@ def validate_topology(topology: DecisionTopology) -> None:
             raise ValueError("structured report digest mismatch")
 
 
-def build_team_topology(report: DecisionReport) -> DecisionTopology:
+def build_team_topology(report: DecisionReport, *, trace=None) -> DecisionTopology:
     """Project the existing four-role deterministic team decision, without approval."""
     if not isinstance(report, DecisionReport) or report.paper_only is not True:
         raise ValueError("paper-only DecisionReport required")
@@ -222,10 +313,22 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
     if not isinstance(report.evidence, tuple) or not 4 <= len(report.evidence) <= 5:
         raise ValueError("four team roles plus optional adapter required")
 
+    has_trace = trace is not None
+    trace = {} if trace is None else trace
+    risk_references = {}
+    input_attributes = {"input_digest": report.input_digest, "authenticated": False}
+    if has_trace:
+        evaluated_at = trace["evaluated_at"]
+        input_attributes.update(
+            policy=trace["policy"], risk_gates=trace["risk_gates"],
+            bar_count=trace["bar_count"],
+            evaluated_at=evaluated_at.isoformat() if evaluated_at is not None else None,
+        )
     roles = []
+    assessments = {}
     nodes = [
         DecisionNode("input", NodeKind.INPUT, "Input snapshot fingerprint",
-                     {"input_digest": report.input_digest, "authenticated": False}),
+                     input_attributes),
         DecisionNode("advisory", NodeKind.DISPOSITION, "Paper-only advisory",
                      {"disposition": report.action,
                       "confidence": report.confidence,
@@ -253,6 +356,7 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
                 or not isinstance(warnings, (list, tuple)) or len(warnings) > 32):
             raise ValueError("invalid evidence IDs or warnings")
         aid = "agent:" + agent_id
+        assessments[agent_id] = action
         nodes.append(DecisionNode(aid, NodeKind.AGENT, rationale,
                                   {"agent_id": agent_id, "action": action,
                                    "confidence": confidence}))
@@ -261,8 +365,23 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
         for j, reference in enumerate(evidence_ids):
             refid = "reference:" + agent_id + ":" + str(j)
             reference = _bounded_text(reference, "evidence reference", 256)
-            nodes.append(DecisionNode(refid, NodeKind.EVIDENCE_REF, reference,
-                                      {"verified": False}))
+            attributes = {"verified": False}
+            if reference.startswith("close:"):
+                timestamp = trace.get("last_bar_timestamp")
+                attributes.update(source_group="input_bars", last_observed_at=timestamp)
+                if has_trace:
+                    observed = _parse_timestamp(timestamp) if timestamp is not None else None
+                    age = ((evaluated_at - observed).total_seconds()
+                           if evaluated_at is not None and observed is not None
+                           and observed.utcoffset() is not None else None)
+                    attributes["age_seconds"] = age
+            elif reference.startswith("portfolio:"):
+                attributes.update(source_group="input_portfolio")
+            elif reference == "adapter:failure":
+                attributes.update(source_group="strategic_adapter")
+            if agent_id == "risk":
+                risk_references[reference] = refid
+            nodes.append(DecisionNode(refid, NodeKind.EVIDENCE_REF, reference, attributes))
             edges.extend((DecisionEdge(aid, refid, EdgeKind.CITES),
                           DecisionEdge(refid, "advisory", EdgeKind.INFORMS)))
         for j, warning in enumerate(warnings):
@@ -278,7 +397,32 @@ def build_team_topology(report: DecisionReport) -> DecisionTopology:
     for i, reason in enumerate(report.reasons):
         reason = _bounded_text(reason, "review reason")
         nid = "reason:" + str(i)
-        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason))
+        gate = trace.get("risk_gates", {}).get(reason)
+        attributes = ({key: value for key, value in gate.items()
+                       if key not in {"headroom", "triggered"}} if gate else {})
+        if attributes:
+            refid = risk_references.get(attributes.get("evidence_id"))
+            if refid is None:
+                raise ValueError("risk gate evidence reference missing")
+            edges.append(DecisionEdge(refid, nid, EdgeKind.INFORMS))
+        elif has_trace and reason in {"strategic disagreement", "insufficient directional consensus"}:
+            attributes = {
+                "temporal_action": assessments["temporal"],
+                "temporal_source": "input_bars",
+                "strategic_action": assessments["strategic"],
+                "strategic_source": report.strategic_source,
+            }
+            edges.extend((DecisionEdge("agent:temporal", nid, EdgeKind.INFORMS),
+                          DecisionEdge("agent:strategic", nid, EdgeKind.INFORMS)))
+        elif has_trace and reason == "independent strategic evidence required":
+            attributes = {"strategic_source": report.strategic_source,
+                          "required_source": "external_adapter"}
+            edges.append(DecisionEdge("agent:strategic", nid, EdgeKind.INFORMS))
+        elif has_trace and reason == "insufficient regime history":
+            attributes = {"source_group": "input_bars",
+                          "bar_count": trace["bar_count"],
+                          "minimum_bars": MIN_REGIME_BARS}
+        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason, attributes))
         edges.extend((DecisionEdge("input", nid, EdgeKind.DESCRIBES),
                       DecisionEdge(nid, "advisory", EdgeKind.EXPLAINS)))
 

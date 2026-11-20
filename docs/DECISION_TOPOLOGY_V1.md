@@ -136,3 +136,57 @@ Future adoption should compare any topology benefit against the simpler
 existing `DecisionReport` and `validate_report()` representations on
 prespecified audit tasks before adding calibrated probabilistic or adaptive
 methods. Maintain the current execution boundary and independent risk review.
+
+## Risk veto audit and replay
+
+Graphs from `HedgeOpsTeam.analyze_with_topology()` link each triggered
+drawdown, exposure, or volatility veto to the risk assessment's input
+reference and the resulting HOLD. The veto records the observed value,
+configured limit, threshold, and comparison used by the policy.
+Price references share the `input_bars` source group and carry the last
+supplied bar timestamp when available. Portfolio references share
+`input_portfolio`. These groups identify shared inputs within one decision.
+Source authentication and freshness remain unverified.
+
+`team.replay_portfolio_risk(bars, portfolio, field="drawdown_pct", value=0.19)`
+returns before and after topologies, added and cleared review reasons,
+and a disposition-change flag. It supports drawdown and exposure with the
+deterministic strategy. A cleared gate can leave the recommendation at HOLD
+when another veto applies.
+
+To measure review value, use the same labeled single-veto and simultaneous-veto
+fixtures with `DecisionReport` and the topology. Ask reviewers to identify
+the decisive gates, give their observed values and thresholds, and explain
+whether changing one input clears HOLD. Counterbalance which format each
+reviewer sees first and record answer accuracy and time to completion.
+
+Strategy disagreement and insufficient directional consensus show both
+assessments' actions and sources. The independent-strategy blocker shows
+the observed strategy source and the required one. The history blocker
+shows the observed and minimum bar counts. Each blocker has its own edge
+to HOLD, so reviewers can identify simultaneous blockers.
+
+## Comparing and reviewing decisions
+
+- `team.replay_portfolio_risk_changes(bars, portfolio, changes={"drawdown_pct": 0.19, "exposure_pct": 0.24})`
+  returns a baseline, single-change scenarios, and a combined scenario.
+- `compare_decisions(before, after)` returns the two decisions' policies, gate measurements,
+  assessments, and blockers. A gate's headroom is its threshold minus its observation.
+  Check the comparison and trigger flag to interpret zero headroom.
+- `analyze_with_topology(..., evaluated_at=aware_datetime)` records an explicit evaluation
+  time and computes age from timezone-aware bar timestamps. Missing or incomparable
+  timestamps produce a null age. Age does not establish the accuracy of a source.
+- `review_markdown(graph, replay=replay_result)` renders an advisory review.
+  `summarize_blockers(graphs)` counts blockers, pairs, and missing observation timestamps
+  over the caller's supplied sample. These helpers take deterministic team graphs.
+- Each traced graph includes the policy revision, active limits, independence
+  requirement, expected bar interval, input fingerprint, and observed strategy source.
+  Keep the original inputs and evaluator revision separately for exact reruns.
+
+For a timed review exercise, record one row per task with anonymous reviewer ID,
+case ID, format, presentation order, correctness, and elapsed seconds. Use an
+answer key for the two-veto example: drawdown of 0.20 and exposure of 0.25
+both trigger at equality, either reduction alone leaves HOLD, and lowering both
+to 0.19 and 0.24 clears the two vetoes with an otherwise directional baseline.
+Report the accuracy and median completion time by format. Use equivalent cases
+across orders to reduce recall effects.

@@ -247,3 +247,161 @@ def test_10_family_registry_does_not_claim_unbuilt_models():
         DecisionFamily.AXIOMATIC, DecisionFamily.COUNTERFACTUAL,
         DecisionFamily.REGIME_SWITCHING, DecisionFamily.TOPOLOGICAL,
     }
+
+
+def test_drawdown_trace_and_single_input_replay():
+    team = HedgeOpsTeam()
+    inputs = portfolio(drawdown_pct=0.20)
+    result = team.replay_portfolio_risk(bars(), inputs, field="drawdown_pct", value=0.19)
+    baseline, scenario = result["baseline"], result["scenario"]
+    assert (baseline.disposition, scenario.disposition) == ("HOLD", "BUY")
+    assert result["disposition_changed"]
+    assert result["cleared_reasons"] == ("drawdown veto",)
+    assert inputs["drawdown_pct"] == 0.20
+    veto = next(node for node in baseline.nodes if node.label == "drawdown veto")
+    assert veto.attributes == {
+        "evidence_id": "portfolio:drawdown_pct", "limit": "max_drawdown_pct",
+        "observed": 0.20, "threshold": 0.20, "comparison": ">=",
+    }
+    source = next(node for node in baseline.nodes
+                  if node.label == "portfolio:drawdown_pct")
+    assert DecisionEdge(source.node_id, veto.node_id, EdgeKind.INFORMS) in baseline.edges
+    assert DecisionEdge(veto.node_id, "advisory", EdgeKind.EXPLAINS) in baseline.edges
+    assert source.attributes == {"verified": False, "source_group": "input_portfolio"}
+    price_refs = [node for node in baseline.nodes if node.label.startswith("close:")]
+    assert len(price_refs) > 1
+    assert all(node.attributes["source_group"] == "input_bars" and
+               node.attributes["last_observed_at"] == "2026-01-06" for node in price_refs)
+    forged = replace(veto, attributes={**veto.attributes, "observed": 0.19})
+    with pytest.raises(ValueError, match="invalid risk gate trace"):
+        validate_topology(replace(baseline, nodes=tuple(
+            forged if node == veto else node for node in baseline.nodes
+        )))
+
+
+def test_risk_replay_keeps_other_vetoes_and_disallows_adapters():
+    team = HedgeOpsTeam()
+    inputs = portfolio(drawdown_pct=0.20, exposure_pct=0.25)
+    result = team.replay_portfolio_risk(bars(), inputs, field="drawdown_pct", value=0.19)
+    assert not result["disposition_changed"]
+    assert result["cleared_reasons"] == ("drawdown veto",)
+    assert result["scenario"].disposition == "HOLD"
+    with pytest.raises(ValueError, match="deterministic strategy"):
+        HedgeOpsTeam(strategic_agent=object()).replay_portfolio_risk(
+            bars(), inputs, field="drawdown_pct", value=0.19
+        )
+
+
+def test_strategy_disagreement_and_risk_veto_are_separate_blockers():
+    class OpposingStrategy:
+        def analyze(self, *, bars, portfolio):
+            return {"action": "SELL"}
+
+    team = HedgeOpsTeam(strategic_agent=OpposingStrategy())
+    report, graph = team.analyze_with_topology(bars(), portfolio(drawdown_pct=0.20))
+    assert report.action == "HOLD"
+    blockers = {node.label: node for node in graph.nodes if node.kind == NodeKind.REVIEW_REASON}
+    assert set(blockers) == {"drawdown veto", "strategic disagreement"}
+    disagreement = blockers["strategic disagreement"]
+    assert disagreement.attributes == {
+        "temporal_action": "BUY", "temporal_source": "input_bars",
+        "strategic_action": "SELL", "strategic_source": "external_adapter",
+    }
+    for role in ("temporal", "strategic"):
+        assert DecisionEdge("agent:" + role, disagreement.node_id, EdgeKind.INFORMS) in graph.edges
+    for blocker in blockers.values():
+        assert DecisionEdge(blocker.node_id, "advisory", EdgeKind.EXPLAINS) in graph.edges
+
+
+def test_other_hold_reasons_include_their_policy_inputs():
+    team = HedgeOpsTeam(require_independent_strategy=True)
+    _, graph = team.analyze_with_topology([{"close": 100}, {"close": 100}], portfolio())
+    blockers = {node.label: node.attributes for node in graph.nodes
+                if node.kind == NodeKind.REVIEW_REASON}
+    assert blockers["independent strategic evidence required"] == {
+        "strategic_source": "unverified_mirror", "required_source": "external_adapter",
+    }
+    assert blockers["insufficient regime history"] == {
+        "source_group": "input_bars", "bar_count": 2, "minimum_bars": 5,
+    }
+    assert blockers["insufficient directional consensus"]["temporal_action"] == "HOLD"
+
+
+def test_combined_risk_replay_review_and_counts():
+    from hedgeops_team.decision_topology import review_markdown, summarize_blockers
+
+    team = HedgeOpsTeam()
+    result = team.replay_portfolio_risk_changes(
+        bars(), portfolio(drawdown_pct=0.20, exposure_pct=0.25),
+        changes={"drawdown_pct": 0.19, "exposure_pct": 0.24},
+    )
+    assert all(item["topology"].disposition == "HOLD" for item in result["individual"].values())
+    baseline = result["baseline"]
+    combined = result["combined"]
+    assert combined["topology"].disposition == "BUY"
+    comparison = combined["comparison"]
+    assert comparison["cleared_blockers"] == ("drawdown veto", "exposure veto")
+    assert comparison["remaining_blockers"] == ()
+    assert comparison["before"]["risk_gates"]["drawdown veto"]["headroom"] == 0
+    assert comparison["after"]["risk_gates"]["drawdown veto"]["headroom"] > 0
+    assert comparison["before"]["policy"]["risk_limits"]["max_exposure_pct"] == 0.25
+    assert "combined · BUY" in review_markdown(baseline, replay=result)
+    summary = summarize_blockers([baseline, combined["topology"]])
+    assert summary["sample_size"] == 2
+    assert summary["blocker_counts"] == {"drawdown veto": 1, "exposure veto": 1}
+    assert summary["co_occurrences"] == [{"blockers": ("drawdown veto", "exposure veto"), "count": 1}]
+
+
+def test_topology_records_age_only_with_comparable_timestamps():
+    from datetime import datetime, timezone
+
+    stamped = bars()
+    for bar in stamped:
+        bar["timestamp"] += "T00:00:00Z"
+    team = HedgeOpsTeam()
+    _, graph = team.analyze_with_topology(
+        stamped, portfolio(), evaluated_at=datetime(2026, 1, 7, tzinfo=timezone.utc)
+    )
+    quote = next(n for n in graph.nodes if n.label == "close:all")
+    assert quote.attributes["age_seconds"] == 86400
+    _, graph = team.analyze_with_topology(bars(), portfolio())
+    quote = next(n for n in graph.nodes if n.label == "close:all")
+    assert quote.attributes["age_seconds"] is None
+
+
+def test_topology_rejects_a_history_claim_that_disagrees_with_policy_trace():
+    _, graph = HedgeOpsTeam().analyze_with_topology(bars(count=2), portfolio())
+    nodes = tuple(
+        replace(node, attributes={**node.attributes, "minimum_bars": 3})
+        if node.label == "insufficient regime history" else node for node in graph.nodes
+    )
+    with pytest.raises(ValueError, match="review reasons do not match policy trace"):
+        validate_topology(replace(graph, nodes=nodes))
+
+
+@pytest.mark.parametrize(("field", "limit", "reason"), [
+    ("drawdown_pct", 0.20, "drawdown veto"),
+    ("exposure_pct", 0.25, "exposure veto"),
+])
+@pytest.mark.parametrize(("offset", "triggered"), [(-0.001, False), (0, True), (0.001, True)])
+def test_risk_gate_boundaries(field, limit, reason, offset, triggered):
+    report, graph = HedgeOpsTeam().analyze_with_topology(
+        bars(), portfolio(**{field: limit + offset})
+    )
+    root = next(n for n in graph.nodes if n.kind == NodeKind.INPUT)
+    gate = root.attributes["risk_gates"][reason]
+    assert gate["triggered"] is triggered
+    assert (reason in report.reasons) is triggered
+    assert gate["headroom"] == pytest.approx(-offset)
+
+
+def test_volatility_at_limit_passes_strict_gate():
+    from hedgeops_team.core import RiskLimits
+
+    team = HedgeOpsTeam(risk_limits=RiskLimits(max_daily_volatility=0))
+    _, graph = team.analyze_with_topology([{"close": 100}] * 5, portfolio())
+    root = next(n for n in graph.nodes if n.kind == NodeKind.INPUT)
+    gate = root.attributes["risk_gates"]["volatility veto"]
+    assert gate["headroom"] == 0
+    assert gate["comparison"] == ">"
+    assert gate["triggered"] is False
