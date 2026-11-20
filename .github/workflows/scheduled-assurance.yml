@@ -16,6 +16,8 @@ jobs:
   assess:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      refresh: ${{ steps.intake.outputs.refresh }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -25,20 +27,56 @@ jobs:
         with:
           python-version: '3.12'
       - name: Import recent verified offline evidence when private bundle is absent
+        id: intake
         env:
           ASSURANCE_EVIDENCE_BUNDLE_JSON: ${{ secrets.ASSURANCE_EVIDENCE_BUNDLE_JSON }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$ASSURANCE_EVIDENCE_BUNDLE_JSON" ]; then
-            python -m scripts.collect_hourly_assurance_input --output "$RUNNER_TEMP/hourly-assurance-input.json"
+            rc=0
+            python -m scripts.collect_hourly_assurance_input --output "$RUNNER_TEMP/hourly-assurance-input.json" || rc=$?
+            if [ "$rc" -eq 3 ]; then
+              echo "refresh=true" >> "$GITHUB_OUTPUT"
+            else
+              exit "$rc"
+            fi
           else
             echo "Using configured private assurance bundle."
           fi
       - name: Validate private gate evidence and publish redacted status
+        if: steps.intake.outputs.refresh != 'true'
         env:
           ASSURANCE_EVIDENCE_BUNDLE_JSON: ${{ secrets.ASSURANCE_EVIDENCE_BUNDLE_JSON }}
           ASSURANCE_CRON: ${{ github.event.schedule }}
           ASSURANCE_EVIDENCE_BUNDLE_FILE: ${{ runner.temp }}/hourly-assurance-input.json
           PYTHONNOUSERSITE: '1'
           PYTHONDONTWRITEBYTECODE: '1'
+        run: python scheduled_assurance.py
+
+  refresh-offline-evidence:
+    needs: assess
+    if: needs.assess.outputs.refresh == 'true'
+    uses: ./.github/workflows/hourly-offline-release.yml
+    permissions:
+      contents: read
+
+  assess-refreshed-evidence:
+    needs: refresh-offline-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Import evidence from this run's completed offline checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m scripts.collect_hourly_assurance_input --from-current-run --output "$RUNNER_TEMP/hourly-assurance-input.json"
+      - name: Assess refreshed offline evidence
+        env:
+          ASSURANCE_CRON: ${{ github.event.schedule }}
+          ASSURANCE_EVIDENCE_BUNDLE_FILE: ${{ runner.temp }}/hourly-assurance-input.json
         run: python scheduled_assurance.py
