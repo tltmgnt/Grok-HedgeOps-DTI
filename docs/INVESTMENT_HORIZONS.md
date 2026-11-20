@@ -177,3 +177,28 @@ conflicting copies. It compares cumulative quantity with the order snapshot,
 checks each fill against the limit, and shows the expected and observed
 position and cash with exact differences. Source authentication, settlement
 timing, unrelated activity, and multi-order accounting require separate evidence.
+
+### Multi-order paper account reconciliation
+
+Run `python investment_paper_portfolio.py paper-portfolio.json` to reconcile
+overlapping traced buy orders and signed non-trade cash movements against
+one pair of account snapshots. It prints JSON and exits 0 for matching
+balances, 1 for discrepancies, and 2 for invalid evidence.
+
+| Bundle field | Contents |
+| --- | --- |
+| `mode`, `complete_interval`, `account_ref` | `PAPER_ONLY`, true, and a local paper account alias |
+| `before`, `after` | Complete position maps in `positions` keyed by symbol, trade-date `cash`, `observed_at`, `account_ref`, and `currency` set to `USD` |
+| `orders` | One object per order with `report`, `intents`, and `paper_order_snapshot`. The broker snapshot needs `submitted_at` and `updated_at`. |
+| `fills` | The normalized individual fill records documented above, with activity IDs unique across the account |
+| `cash_movements` | Non-trade ledger records with `movement_id`, `account_ref`, `currency`, `occurred_at`, and signed decimal-string `amount` |
+
+Include only orders submitted after the opening snapshot and obtain the
+ending order and balance records for the same cutoff. The cash movements
+may include deposits or withdrawals. Fill costs and fees are already
+accounted for by the tool. Use consistent trade-date cash and complete
+position snapshots so a symbol missing from the map can be treated as zero.
+The tool surfaces unexplained position changes, cash differences, missing
+fills, and order discrepancies. Settlement, fill corrections, sell orders,
+and other position adjustments are outside this replay contract. The
+bundle's completeness and provenance require independent confirmation.
