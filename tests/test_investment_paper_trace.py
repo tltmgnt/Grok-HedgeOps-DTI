@@ -173,3 +173,37 @@ class PaperTraceTests(unittest.TestCase):
             reconcile_portfolio(dict(bundle, cash_movements=[cash, dict(cash, amount="14")]))
         with self.assertRaisesRegex(ValueError, "untraced order"):
             reconcile_portfolio(dict(bundle, orders=bundle["orders"][:1]))
+
+        settle = dict(identity, settled_at="2026-11-10T15:04:30Z")
+        paid = dict(settle, settlement_id="old-payment", obligation_id="opening", amount="-2")
+        partial = dict(settle, settlement_id="partial-payment", obligation_id="a", amount="-3.01")
+        evidence = {
+            "before": dict(identity, observed_at=bundle["before"]["observed_at"],
+                           settled_cash="102", obligations={"opening": "-2"}),
+            "after": dict(identity, observed_at=bundle["after"]["observed_at"],
+                          settled_cash="111.99", obligations={"a": "-2", "b": "-5.01"}),
+            "events": [partial, paid, dict(paid, amount="-2.00")],
+        }
+        audit = reconcile_portfolio(dict(bundle, settlement=evidence))
+        self.assertEqual(audit["state"], "BALANCES_MATCH")
+        settlement = audit["settlement"]
+        self.assertEqual(settlement["state"], "SETTLEMENT_MATCHES")
+        self.assertEqual(settlement["settled_cash_usd"]["expected"], "111.99")
+        self.assertEqual(settlement["expected_open_obligations"], {"a": "-2.00", "b": "-5.01"})
+        self.assertEqual(settlement["duplicate_settlement_count"], 1)
+
+        # A wrong cash and obligation pair can preserve the bridge and still fail replay.
+        changed = dict(evidence, after=dict(evidence["after"], settled_cash="112.99",
+                                           obligations={"a": "-3", "b": "-5.01"}))
+        audit = reconcile_portfolio(dict(bundle, settlement=changed))
+        self.assertEqual(audit["discrepancies"], ["SETTLEMENT_MISMATCH"])
+        self.assertEqual(audit["settlement"]["discrepancies"], [
+            "SETTLED_CASH_MISMATCH", "OPEN_OBLIGATION_MISMATCH",
+        ])
+        for extra, message in (
+            (dict(partial, amount="-6"), "exceeds or reverses"),
+            (dict(partial, settled_at="2026-11-10T15:03:30Z"), "valid interval"),
+            (dict(partial, obligation_id="unknown"), "known paper obligation"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                reconcile_portfolio(dict(bundle, settlement=dict(evidence, events=[paid, extra])))

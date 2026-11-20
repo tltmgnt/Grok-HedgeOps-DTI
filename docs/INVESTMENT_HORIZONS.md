@@ -199,6 +199,25 @@ may include deposits or withdrawals. Fill costs and fees are already
 accounted for by the tool. Use consistent trade-date cash and complete
 position snapshots so a symbol missing from the map can be treated as zero.
 The tool surfaces unexplained position changes, cash differences, missing
-fills, and order discrepancies. Settlement, fill corrections, sell orders,
-and other position adjustments are outside this replay contract. The
+fills, and order discrepancies. Fill corrections, sell orders, and other
+position adjustments are outside this replay contract. The
 bundle's completeness and provenance require independent confirmation.
+
+#### Optional settled-cash reconciliation
+
+Include a `settlement` object in the same bundle to reconcile trade-date
+cash to settled cash and to check the remaining obligation for each fill.
+
+| Field | Contents |
+| --- | --- |
+| `before`, `after` | `account_ref`, `currency` set to `USD`, `observed_at` matching the corresponding account snapshot, `settled_cash`, and an `obligations` map from ID to signed open USD amount |
+| `events` | `settlement_id`, `obligation_id`, `account_ref`, `currency`, `settled_at`, and signed decimal-string `amount` |
+
+Payables are negative and receivables positive. Each new buy fill records
+an obligation with its fill ID for the full purchase cost and fee. Supply
+settlement records from the export, including partial payments. The replay
+does not infer a settlement date from the execution date. Non-trade cash
+movements in this bundle must affect trade-date and settled cash together.
+The tool rejects unknown obligations, premature payments, overpayments,
+and conflicting duplicate events. It verifies both the cash-to-obligations
+bridge and each obligation's remaining amount.

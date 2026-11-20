@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from investment_paper_accounting import _audit_order_fills, _decimal, _serialize_order_audit
+from investment_paper_settlement import reconcile_settlement
 from investment_paper_trace import build_trace
 from investment_research import timestamp
 
@@ -125,7 +126,7 @@ def reconcile_portfolio(bundle):
         discrepancies.append("POSITION_QUANTITY_MISMATCH")
     if cash_difference:
         discrepancies.append("CASH_BALANCE_MISMATCH")
-    return {
+    result = {
         "state": "DISCREPANCY" if discrepancies else "BALANCES_MATCH",
         "paper_only": True, "order_authority": False,
         "interval": {"from_exclusive": before_at.isoformat(), "to_inclusive": after_at.isoformat()},
@@ -143,6 +144,18 @@ def reconcile_portfolio(bundle):
         "duplicate_cash_movement_count": len(cash_events) - len(movements),
         "discrepancies": discrepancies,
     }
+
+    if "settlement" in bundle:
+        settlement = reconcile_settlement(
+            bundle["settlement"], account_ref=account_ref, before_at=before_at, after_at=after_at,
+            before_cash=before_cash, after_cash=after_cash, cash_movement_total=cash_movement_total,
+            orders=result["orders"],
+        )
+        result["settlement"] = settlement
+        if settlement["discrepancies"]:
+            discrepancies.append("SETTLEMENT_MISMATCH")
+            result["state"] = "DISCREPANCY"
+    return result
 
 
 def main(argv=None):
