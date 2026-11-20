@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.collect_hourly_assurance_input import collect
+from scripts.collect_hourly_assurance_input import NoFreshRun, collect, import_artifact
 from scheduled_assurance import check_bundle, main
 
 SHA = 'a' * 40
@@ -90,8 +90,31 @@ class OfflineAssuranceIntakeTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as directory:
                     with patch('scripts.collect_hourly_assurance_input.gh',
                                side_effect=bad_gh):
-                        with self.assertRaises(ValueError):
+                        with self.assertRaises(NoFreshRun):
                             collect(REPO, SHA, NOW, Path(directory) / 'out.json')
+
+    def test_same_run_import_checks_artifact_age_and_keeps_gates_incomplete(self):
+        for age in (0, 95, 96, -1):
+            with self.subTest(age=age), tempfile.TemporaryDirectory() as directory:
+                def current_run_gh(*args):
+                    if args[0] == 'api':
+                        self.assertIn(f'/runs/{RUN_ID}/artifacts?', args[1])
+                        response = json.loads(fake_gh(*args))
+                        response['artifacts'][0]['created_at'] = (NOW - timedelta(minutes=age)).isoformat()
+                        return json.dumps(response)
+                    return fake_gh(*args)
+
+                out = Path(directory) / 'import.json'
+                with patch('scripts.collect_hourly_assurance_input.gh', side_effect=current_run_gh):
+                    if age < 0 or age > 95:
+                        with self.assertRaisesRegex(ValueError, 'stale'):
+                            import_artifact(REPO, SHA, RUN_ID, out, now=NOW)
+                        self.assertFalse(out.exists())
+                    else:
+                        import_artifact(REPO, SHA, RUN_ID, out, now=NOW)
+                        report, code = check_bundle(out.read_text(), 'ten-minute', NOW)
+                        self.assertEqual((code, report['status']), (1, 'EVIDENCE_INCOMPLETE'))
+                        self.assertFalse(report['execution_authorized'])
 
     def test_fails_on_nonpassing_validation(self):
         bad = dict(FILES)
