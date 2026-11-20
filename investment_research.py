@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+from uuid import uuid4
 
 HORIZONS = {"1-2y": 2, "5y": 5}
 CHECKS = ("annual_earnings_reconciled", "cash_flow_reviewed", "debt_reviewed",
@@ -184,7 +185,9 @@ def main(argv=None):
                       help='Skip quote collection when the regular market session is closed')
     parser.add_argument('--horizon', choices=HORIZONS, default='1-2y')
     args = parser.parse_args(argv)
+    run_id = uuid4().hex
     report = {'assessments': [], 'order_authority': False, 'data_errors': []}
+    run_metadata = {'research_run_id': run_id, 'paper_entry_requested': args.paper_entry}
     code = 0
     try:
         policy = validate(json.loads(args.policy.read_text(encoding='utf-8')))
@@ -205,7 +208,7 @@ def main(argv=None):
             from investment_paper_execution import execute_one
             with (args.output / 'entry-intents.jsonl').open('a', encoding='utf-8') as journal:
                 def audit(event):
-                    journal.write(json.dumps(event, allow_nan=False) + '\n')
+                    journal.write(json.dumps({**event, 'research_run_id': run_id}, allow_nan=False) + '\n')
                     journal.flush()
                     os.fsync(journal.fileno())
                 report['execution'] = execute_one(policy, args.horizon, key=key, secret=secret, audit=audit)
@@ -215,7 +218,7 @@ def main(argv=None):
         # Never publish raw provider errors, account records or input text.
         report['data_errors'] = ['RESEARCH_UNAVAILABLE_CHECK_POLICY_AND_PROVIDER']
         code = 1
-    save_report(report, args.output)
+    save_report({**report, **run_metadata}, args.output)
     print('Investment research report saved.')
     if report['data_errors']:
         print('Configuration and data: ' + ', '.join(report['data_errors']))

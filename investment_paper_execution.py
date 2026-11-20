@@ -100,7 +100,7 @@ def execute_one(policy, horizon, *, key, secret, get=request_json, clock=None, a
         try:
             order = get(PAPER, '/v2/orders', key, secret, payload=payload)
         except (RuntimeError, OSError, ValueError, TypeError):
-            return dict(result, decision='UNKNOWN_RECONCILE',
+            return dict(result, decision='UNKNOWN_RECONCILE', client_order_id=client_id,
                         reason='Submission outcome uncertain; inspect broker by client order ID before retrying')
         try:
             valid_ack = (isinstance(order, dict) and bool(order.get('id'))
@@ -112,9 +112,10 @@ def execute_one(policy, horizon, *, key, secret, get=request_json, clock=None, a
         except (ValueError, TypeError):
             valid_ack = False
         if not valid_ack:
-            return dict(result, decision='UNKNOWN_RECONCILE', reason='Ambiguous acknowledgment; reconcile broker')
+            return dict(result, decision='UNKNOWN_RECONCILE', client_order_id=client_id,
+                        reason='Ambiguous acknowledgment; reconcile broker')
         return dict(result, decision='SUBMITTED', symbol=symbol, client_order_id=client_id,
-                    broker_status=order.get('status'), order_filled=order.get('status') == 'filled',
+                    broker_order_id=order['id'], broker_status=order.get('status'), order_filled=order.get('status') == 'filled',
                     limit_price=str(cap), notional_usd=str(BUDGET),
                     holding_review='Quarterly and at material events; no automatic horizon sale')
     return skip('No candidate passed current valuation and financial review gates')

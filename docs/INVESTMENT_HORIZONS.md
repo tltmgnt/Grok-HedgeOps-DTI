@@ -128,3 +128,27 @@ Tests use synthetic fixtures only and verify valuation arithmetic, both horizons
 stale/malformed evidence, gates, price changes, paper-only bounded requests,
 duplicate reconciliation, uncertain submissions and isolation from momentum exits.
 The existing complete pytest suite remains the regression check.
+
+### Offline decision-to-fill trace
+
+New runs add a `research_run_id` to `research.json` and to the durable
+`PAPER_ENTRY_INTENT` journal record. The final assessment in the journal
+uses the submission-time quote, which can differ from the earlier research
+snapshot. The trace links the journal to a separately saved paper broker
+order by client order ID and checks the broker order ID when the submission
+acknowledgment recorded it.
+
+```bash
+python investment_paper_trace.py investment-output/research.json \
+  --intents investment-output/entry-intents.jsonl \
+  --paper-order-snapshot paper-order.json
+```
+
+Supply an order JSON from the paper environment. The tool reads local files
+and prints an audit record. It reports a skipped submission, missing broker
+evidence, or a matched snapshot or discrepancy. Fill quantity and average
+price are cumulative broker observations. A snapshot does not establish
+individual fills, position or cash reconciliation, or the source's
+authenticity. An existing order detected on a subsequent run is attributed
+only through the original run's journal. Historical reports without a run
+ID cannot be joined automatically.
