@@ -11,7 +11,7 @@ from collections import deque
 from hashlib import sha256
 
 from hedgeops_team.audit import canonical_json, digest_payload
-from hedgeops_team.core import ACTIONS, RISK_GATES, DecisionReport, risk_gate_triggered
+from hedgeops_team.core import ACTIONS, MIN_REGIME_BARS, RISK_GATES, DecisionReport, risk_gate_triggered
 from report_validation import REQUIRED_FIELDS, validate_report
 
 from .schema import DecisionEdge, DecisionNode, DecisionTopology, EdgeKind, NodeKind
@@ -96,6 +96,7 @@ def validate_topology(topology: DecisionTopology) -> None:
         (NodeKind.INPUT, NodeKind.REVIEW_REASON, EdgeKind.DESCRIBES),
         (NodeKind.INPUT, NodeKind.REPORT_FIELD, EdgeKind.DESCRIBES),
         (NodeKind.AGENT, NodeKind.DISPOSITION, EdgeKind.INFORMS),
+        (NodeKind.AGENT, NodeKind.REVIEW_REASON, EdgeKind.INFORMS),
         (NodeKind.EVIDENCE_REF, NodeKind.REVIEW_REASON, EdgeKind.INFORMS),
         (NodeKind.EVIDENCE_REF, NodeKind.DISPOSITION, EdgeKind.INFORMS),
         (NodeKind.WARNING, NodeKind.DISPOSITION, EdgeKind.INFORMS),
@@ -246,9 +247,11 @@ def build_team_topology(report: DecisionReport, *, trace=None) -> DecisionTopolo
     if not isinstance(report.evidence, tuple) or not 4 <= len(report.evidence) <= 5:
         raise ValueError("four team roles plus optional adapter required")
 
+    has_trace = trace is not None
     trace = {} if trace is None else trace
     risk_references = {}
     roles = []
+    assessments = {}
     nodes = [
         DecisionNode("input", NodeKind.INPUT, "Input snapshot fingerprint",
                      {"input_digest": report.input_digest, "authenticated": False}),
@@ -279,6 +282,7 @@ def build_team_topology(report: DecisionReport, *, trace=None) -> DecisionTopolo
                 or not isinstance(warnings, (list, tuple)) or len(warnings) > 32):
             raise ValueError("invalid evidence IDs or warnings")
         aid = "agent:" + agent_id
+        assessments[agent_id] = action
         nodes.append(DecisionNode(aid, NodeKind.AGENT, rationale,
                                   {"agent_id": agent_id, "action": action,
                                    "confidence": confidence}))
@@ -313,13 +317,30 @@ def build_team_topology(report: DecisionReport, *, trace=None) -> DecisionTopolo
     for i, reason in enumerate(report.reasons):
         reason = _bounded_text(reason, "review reason")
         nid = "reason:" + str(i)
-        gate = trace.get(reason, {})
-        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason, gate))
-        if gate:
-            refid = risk_references.get(gate.get("evidence_id"))
+        attributes = trace.get(reason, {})
+        if attributes:
+            refid = risk_references.get(attributes.get("evidence_id"))
             if refid is None:
                 raise ValueError("risk gate evidence reference missing")
             edges.append(DecisionEdge(refid, nid, EdgeKind.INFORMS))
+        elif has_trace and reason in {"strategic disagreement", "insufficient directional consensus"}:
+            attributes = {
+                "temporal_action": assessments["temporal"],
+                "temporal_source": "input_bars",
+                "strategic_action": assessments["strategic"],
+                "strategic_source": report.strategic_source,
+            }
+            edges.extend((DecisionEdge("agent:temporal", nid, EdgeKind.INFORMS),
+                          DecisionEdge("agent:strategic", nid, EdgeKind.INFORMS)))
+        elif has_trace and reason == "independent strategic evidence required":
+            attributes = {"strategic_source": report.strategic_source,
+                          "required_source": "external_adapter"}
+            edges.append(DecisionEdge("agent:strategic", nid, EdgeKind.INFORMS))
+        elif has_trace and reason == "insufficient regime history":
+            attributes = {"source_group": "input_bars",
+                          "bar_count": trace["bar_count"],
+                          "minimum_bars": MIN_REGIME_BARS}
+        nodes.append(DecisionNode(nid, NodeKind.REVIEW_REASON, reason, attributes))
         edges.extend((DecisionEdge("input", nid, EdgeKind.DESCRIBES),
                       DecisionEdge(nid, "advisory", EdgeKind.EXPLAINS)))
 

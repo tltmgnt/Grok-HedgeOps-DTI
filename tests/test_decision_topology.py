@@ -290,3 +290,38 @@ def test_risk_replay_keeps_other_vetoes_and_disallows_adapters():
         HedgeOpsTeam(strategic_agent=object()).replay_portfolio_risk(
             bars(), inputs, field="drawdown_pct", value=0.19
         )
+
+
+def test_strategy_disagreement_and_risk_veto_are_separate_blockers():
+    class OpposingStrategy:
+        def analyze(self, *, bars, portfolio):
+            return {"action": "SELL"}
+
+    team = HedgeOpsTeam(strategic_agent=OpposingStrategy())
+    report, graph = team.analyze_with_topology(bars(), portfolio(drawdown_pct=0.20))
+    assert report.action == "HOLD"
+    blockers = {node.label: node for node in graph.nodes if node.kind == NodeKind.REVIEW_REASON}
+    assert set(blockers) == {"drawdown veto", "strategic disagreement"}
+    disagreement = blockers["strategic disagreement"]
+    assert disagreement.attributes == {
+        "temporal_action": "BUY", "temporal_source": "input_bars",
+        "strategic_action": "SELL", "strategic_source": "external_adapter",
+    }
+    for role in ("temporal", "strategic"):
+        assert DecisionEdge("agent:" + role, disagreement.node_id, EdgeKind.INFORMS) in graph.edges
+    for blocker in blockers.values():
+        assert DecisionEdge(blocker.node_id, "advisory", EdgeKind.EXPLAINS) in graph.edges
+
+
+def test_other_hold_reasons_include_their_policy_inputs():
+    team = HedgeOpsTeam(require_independent_strategy=True)
+    _, graph = team.analyze_with_topology([{"close": 100}, {"close": 100}], portfolio())
+    blockers = {node.label: node.attributes for node in graph.nodes
+                if node.kind == NodeKind.REVIEW_REASON}
+    assert blockers["independent strategic evidence required"] == {
+        "strategic_source": "unverified_mirror", "required_source": "external_adapter",
+    }
+    assert blockers["insufficient regime history"] == {
+        "source_group": "input_bars", "bar_count": 2, "minimum_bars": 5,
+    }
+    assert blockers["insufficient directional consensus"]["temporal_action"] == "HOLD"

@@ -18,6 +18,7 @@ def risk_gate_triggered(observed, threshold, comparison):
     return observed >= threshold if comparison == ">=" else observed > threshold
 
 
+MIN_REGIME_BARS = 5
 ACTIONS = frozenset({"BUY", "SELL", "HOLD", "REJECT"})
 
 @dataclass(frozen=True)
@@ -208,7 +209,8 @@ class HedgeOpsTeam:
                                      "comparison": comparison}
         if trace is not None:
             trace["last_bar_timestamp"] = bars[-1].get("timestamp")
-        if len(prices) < 5:
+            trace["bar_count"] = len(prices)
+        if len(prices) < MIN_REGIME_BARS:
             reasons.append("insufficient regime history")
         if strategic_action != temporal_action:
             reasons.append("strategic disagreement")

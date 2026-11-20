@@ -159,3 +159,9 @@ fixtures with `DecisionReport` and the topology. Ask reviewers to identify
 the decisive gates, give their observed values and thresholds, and explain
 whether changing one input clears HOLD. Counterbalance which format each
 reviewer sees first and record answer accuracy and time to completion.
+
+Strategy disagreement and insufficient directional consensus show both
+assessments' actions and sources. The independent-strategy blocker shows
+the observed strategy source and the required one. The history blocker
+shows the observed and minimum bar counts. Each blocker has its own edge
+to HOLD, so reviewers can identify simultaneous blockers.
