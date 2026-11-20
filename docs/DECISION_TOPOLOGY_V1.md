@@ -165,3 +165,28 @@ assessments' actions and sources. The independent-strategy blocker shows
 the observed strategy source and the required one. The history blocker
 shows the observed and minimum bar counts. Each blocker has its own edge
 to HOLD, so reviewers can identify simultaneous blockers.
+
+## Comparing and reviewing decisions
+
+- `team.replay_portfolio_risk_changes(bars, portfolio, changes={"drawdown_pct": 0.19, "exposure_pct": 0.24})`
+  returns a baseline, single-change scenarios, and a combined scenario.
+- `compare_decisions(before, after)` returns the two decisions' policies, gate measurements,
+  assessments, and blockers. A gate's headroom is its threshold minus its observation.
+  Check the comparison and trigger flag to interpret zero headroom.
+- `analyze_with_topology(..., evaluated_at=aware_datetime)` records an explicit evaluation
+  time and computes age from timezone-aware bar timestamps. Missing or incomparable
+  timestamps produce a null age. Age does not establish the accuracy of a source.
+- `review_markdown(graph, replay=replay_result)` renders an advisory review.
+  `summarize_blockers(graphs)` counts blockers, pairs, and missing observation timestamps
+  over the caller's supplied sample. These helpers take deterministic team graphs.
+- Each traced graph includes the policy revision, active limits, independence
+  requirement, expected bar interval, input fingerprint, and observed strategy source.
+  Keep the original inputs and evaluator revision separately for exact reruns.
+
+For a timed review exercise, record one row per task with anonymous reviewer ID,
+case ID, format, presentation order, correctness, and elapsed seconds. Use an
+answer key for the two-veto example: drawdown of 0.20 and exposure of 0.25
+both trigger at equality, either reduction alone leaves HOLD, and lowering both
+to 0.19 and 0.24 clears the two vetoes with an otherwise directional baseline.
+Report the accuracy and median completion time by format. Use equivalent cases
+across orders to reduce recall effects.

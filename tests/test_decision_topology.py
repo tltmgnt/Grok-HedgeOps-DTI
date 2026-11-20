@@ -325,3 +325,83 @@ def test_other_hold_reasons_include_their_policy_inputs():
         "source_group": "input_bars", "bar_count": 2, "minimum_bars": 5,
     }
     assert blockers["insufficient directional consensus"]["temporal_action"] == "HOLD"
+
+
+def test_combined_risk_replay_review_and_counts():
+    from hedgeops_team.decision_topology import review_markdown, summarize_blockers
+
+    team = HedgeOpsTeam()
+    result = team.replay_portfolio_risk_changes(
+        bars(), portfolio(drawdown_pct=0.20, exposure_pct=0.25),
+        changes={"drawdown_pct": 0.19, "exposure_pct": 0.24},
+    )
+    assert all(item["topology"].disposition == "HOLD" for item in result["individual"].values())
+    baseline = result["baseline"]
+    combined = result["combined"]
+    assert combined["topology"].disposition == "BUY"
+    comparison = combined["comparison"]
+    assert comparison["cleared_blockers"] == ("drawdown veto", "exposure veto")
+    assert comparison["remaining_blockers"] == ()
+    assert comparison["before"]["risk_gates"]["drawdown veto"]["headroom"] == 0
+    assert comparison["after"]["risk_gates"]["drawdown veto"]["headroom"] > 0
+    assert comparison["before"]["policy"]["risk_limits"]["max_exposure_pct"] == 0.25
+    assert "combined · BUY" in review_markdown(baseline, replay=result)
+    summary = summarize_blockers([baseline, combined["topology"]])
+    assert summary["sample_size"] == 2
+    assert summary["blocker_counts"] == {"drawdown veto": 1, "exposure veto": 1}
+    assert summary["co_occurrences"] == [{"blockers": ("drawdown veto", "exposure veto"), "count": 1}]
+
+
+def test_topology_records_age_only_with_comparable_timestamps():
+    from datetime import datetime, timezone
+
+    stamped = bars()
+    for bar in stamped:
+        bar["timestamp"] += "T00:00:00Z"
+    team = HedgeOpsTeam()
+    _, graph = team.analyze_with_topology(
+        stamped, portfolio(), evaluated_at=datetime(2026, 1, 7, tzinfo=timezone.utc)
+    )
+    quote = next(n for n in graph.nodes if n.label == "close:all")
+    assert quote.attributes["age_seconds"] == 86400
+    _, graph = team.analyze_with_topology(bars(), portfolio())
+    quote = next(n for n in graph.nodes if n.label == "close:all")
+    assert quote.attributes["age_seconds"] is None
+
+
+def test_topology_rejects_a_history_claim_that_disagrees_with_policy_trace():
+    _, graph = HedgeOpsTeam().analyze_with_topology(bars(count=2), portfolio())
+    nodes = tuple(
+        replace(node, attributes={**node.attributes, "minimum_bars": 3})
+        if node.label == "insufficient regime history" else node for node in graph.nodes
+    )
+    with pytest.raises(ValueError, match="review reasons do not match policy trace"):
+        validate_topology(replace(graph, nodes=nodes))
+
+
+@pytest.mark.parametrize(("field", "limit", "reason"), [
+    ("drawdown_pct", 0.20, "drawdown veto"),
+    ("exposure_pct", 0.25, "exposure veto"),
+])
+@pytest.mark.parametrize(("offset", "triggered"), [(-0.001, False), (0, True), (0.001, True)])
+def test_risk_gate_boundaries(field, limit, reason, offset, triggered):
+    report, graph = HedgeOpsTeam().analyze_with_topology(
+        bars(), portfolio(**{field: limit + offset})
+    )
+    root = next(n for n in graph.nodes if n.kind == NodeKind.INPUT)
+    gate = root.attributes["risk_gates"][reason]
+    assert gate["triggered"] is triggered
+    assert (reason in report.reasons) is triggered
+    assert gate["headroom"] == pytest.approx(-offset)
+
+
+def test_volatility_at_limit_passes_strict_gate():
+    from hedgeops_team.core import RiskLimits
+
+    team = HedgeOpsTeam(risk_limits=RiskLimits(max_daily_volatility=0))
+    _, graph = team.analyze_with_topology([{"close": 100}] * 5, portfolio())
+    root = next(n for n in graph.nodes if n.kind == NodeKind.INPUT)
+    gate = root.attributes["risk_gates"]["volatility veto"]
+    assert gate["headroom"] == 0
+    assert gate["comparison"] == ">"
+    assert gate["triggered"] is False

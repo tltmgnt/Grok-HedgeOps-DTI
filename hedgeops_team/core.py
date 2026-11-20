@@ -18,6 +18,7 @@ def risk_gate_triggered(observed, threshold, comparison):
     return observed >= threshold if comparison == ">=" else observed > threshold
 
 
+DECISION_POLICY_REVISION = "hedgeops-team-v1"
 MIN_REGIME_BARS = 5
 ACTIONS = frozenset({"BUY", "SELL", "HOLD", "REJECT"})
 
@@ -129,7 +130,7 @@ class HedgeOpsTeam:
             raise ValueError("require_independent_strategy must be bool")
         self.require_independent_strategy = require_independent_strategy
 
-    def analyze_with_topology(self, bars, portfolio):
+    def analyze_with_topology(self, bars, portfolio, *, evaluated_at=None):
         """Add a validated, review-only topology without changing analyze().
 
         This method never grants trading authority. The graph is a projection
@@ -137,7 +138,11 @@ class HedgeOpsTeam:
         """
         from .decision_topology import build_team_topology
 
-        trace = {}
+        if evaluated_at is not None:
+            if not isinstance(evaluated_at, datetime) or evaluated_at.utcoffset() is None:
+                raise ValueError("evaluated_at must be a timezone-aware datetime")
+            evaluated_at = evaluated_at.astimezone(timezone.utc)
+        trace = {"evaluated_at": evaluated_at}
         report = self._analyze(bars, portfolio, trace)
         return report, build_team_topology(report, trace=trace)
 
@@ -155,6 +160,30 @@ class HedgeOpsTeam:
             "disposition_changed": baseline.action != scenario.action,
             "cleared_reasons": tuple(reason for reason in baseline.reasons if reason not in scenario.reasons),
             "added_reasons": tuple(reason for reason in scenario.reasons if reason not in baseline.reasons),
+        }
+
+    def replay_portfolio_risk_changes(self, bars, portfolio, *, changes):
+        """Compare each hypothetical risk change and their combined effect offline."""
+        from .decision_topology import compare_decisions
+
+        if not isinstance(changes, dict) or not changes or set(changes) - {
+            "drawdown_pct", "exposure_pct"
+        }:
+            raise ValueError("changes must specify drawdown_pct or exposure_pct")
+        if self.strategic_agent is not None:
+            raise ValueError("replay requires the deterministic strategy")
+        bars, portfolio, changes = deepcopy((bars, portfolio, changes))
+        _, baseline = self.analyze_with_topology(bars, portfolio)
+        individual = {
+            field: self.analyze_with_topology(bars, {**portfolio, field: value})[1]
+            for field, value in changes.items()
+        }
+        _, combined = self.analyze_with_topology(bars, {**portfolio, **changes})
+        return {
+            "baseline": baseline,
+            "individual": {field: {"topology": graph, "comparison": compare_decisions(baseline, graph)}
+                           for field, graph in individual.items()},
+            "combined": {"topology": combined, "comparison": compare_decisions(baseline, combined)},
         }
 
     def analyze(self, bars, portfolio):
@@ -201,15 +230,26 @@ class HedgeOpsTeam:
         for reason, reference, limit, comparison in RISK_GATES:
             observed = observations[reference]
             threshold = getattr(self.risk_limits, limit)
-            if risk_gate_triggered(observed, threshold, comparison):
+            triggered = risk_gate_triggered(observed, threshold, comparison)
+            if triggered:
                 reasons.append(reason)
-                if trace is not None:
-                    trace[reason] = {"evidence_id": reference, "limit": limit,
-                                     "observed": observed, "threshold": threshold,
-                                     "comparison": comparison}
+            if trace is not None:
+                trace.setdefault("risk_gates", {})[reason] = {
+                    "evidence_id": reference, "limit": limit, "observed": observed,
+                    "threshold": threshold, "comparison": comparison,
+                    "headroom": threshold - observed, "triggered": triggered,
+                }
         if trace is not None:
             trace["last_bar_timestamp"] = bars[-1].get("timestamp")
             trace["bar_count"] = len(prices)
+            trace["policy"] = {
+                "revision": DECISION_POLICY_REVISION,
+                "risk_limits": asdict(self.risk_limits),
+                "require_independent_strategy": self.require_independent_strategy,
+                "minimum_bars": MIN_REGIME_BARS,
+                "expected_bar_interval_seconds": (self.expected_bar_interval.total_seconds()
+                                                  if self.expected_bar_interval else None),
+            }
         if len(prices) < MIN_REGIME_BARS:
             reasons.append("insufficient regime history")
         if strategic_action != temporal_action:
