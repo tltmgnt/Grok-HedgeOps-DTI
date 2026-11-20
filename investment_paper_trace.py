@@ -4,6 +4,8 @@ import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from investment_paper_accounting import reconcile_fills
+
 
 def _amount(value):
     try:
@@ -82,7 +84,7 @@ def _reconcile_order(order, execution, snapshot):
     }
 
 
-def build_trace(report, intents=(), *, paper_order_snapshot=None):
+def build_trace(report, intents=(), *, paper_order_snapshot=None, accounting_evidence=None):
     """Join one tagged research run, its optional intent, and a paper order snapshot."""
     run_id = report.get("research_run_id")
     if not isinstance(run_id, str) or not run_id or report.get("order_authority") is not False:
@@ -109,7 +111,7 @@ def build_trace(report, intents=(), *, paper_order_snapshot=None):
         "acknowledged_broker_status": execution.get("broker_status"),
     }
     if not matching:
-        if paper_order_snapshot is not None:
+        if paper_order_snapshot is not None or accounting_evidence is not None:
             raise ValueError("broker snapshot requires an intent from the same research run")
         decision = execution.get("decision")
         state = {
@@ -120,12 +122,14 @@ def build_trace(report, intents=(), *, paper_order_snapshot=None):
             state = "PAPER_ENTRY_NOT_REQUESTED"
         return {**trace, "reconciliation": {"state": state, "discrepancies": []}}
     assessment, order = _match_intent(report, matching[0], execution)
-    return {
-        **trace,
-        "submission_assessment": assessment,
-        "order_intent": order,
-        "reconciliation": _reconcile_order(order, execution, paper_order_snapshot),
-    }
+    reconciliation = _reconcile_order(order, execution, paper_order_snapshot)
+    trace.update(submission_assessment=assessment, order_intent=order, reconciliation=reconciliation)
+    if accounting_evidence is not None:
+        if paper_order_snapshot is None:
+            raise ValueError("accounting requires a paper order snapshot")
+        accounting_order = {**reconciliation, "broker_updated_at": paper_order_snapshot.get("updated_at")}
+        trace["accounting"] = reconcile_fills(order, accounting_order, accounting_evidence)
+    return trace
 
 
 def main(argv=None):
@@ -133,12 +137,15 @@ def main(argv=None):
     parser.add_argument("report", type=Path, help="Tagged research.json")
     parser.add_argument("--intents", type=Path, help="entry-intents.jsonl")
     parser.add_argument("--paper-order-snapshot", type=Path, help="Saved paper order JSON")
+    parser.add_argument("--accounting-evidence", type=Path, help="Normalized paper fill and balance JSON")
     args = parser.parse_args(argv)
     try:
         report = json.loads(args.report.read_text())
         intents = [json.loads(line) for line in args.intents.read_text().splitlines() if line.strip()] if args.intents else []
         snapshot = json.loads(args.paper_order_snapshot.read_text()) if args.paper_order_snapshot else None
-        print(json.dumps(build_trace(report, intents, paper_order_snapshot=snapshot), indent=2, allow_nan=False))
+        accounting = json.loads(args.accounting_evidence.read_text()) if args.accounting_evidence else None
+        trace = build_trace(report, intents, paper_order_snapshot=snapshot, accounting_evidence=accounting)
+        print(json.dumps(trace, indent=2, allow_nan=False))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         parser.exit(2, f"Unable to build paper trace ({type(exc).__name__}). Check the input files.\n")
     return 0

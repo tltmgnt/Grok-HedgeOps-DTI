@@ -152,3 +152,28 @@ individual fills, position or cash reconciliation, or the source's
 authenticity. An existing order detected on a subsequent run is attributed
 only through the original run's journal. Historical reports without a run
 ID cannot be joined automatically.
+
+Add `--accounting-evidence paper-accounting.json` to reconcile individual
+paper fills, fees, position quantity, and cash. Use normalized USD evidence
+from a single paper account with no unrelated trades, cash movements, or
+position adjustments during the interval. Use a local account alias for
+`account_ref`. The broker order snapshot must include its timezone-aware
+`updated_at`. Obtain the order snapshot and ending balances for the same
+cutoff with no intervening account activity.
+
+The accounting JSON has these fields:
+
+| Record | Fields |
+| --- | --- |
+| Top level | `mode` set to `PAPER_ONLY`, `isolated_interval` set to true, `account_ref`, `before`, `after`, `fills` |
+| Before and after | `account_ref`, `symbol`, `currency` set to `USD`, `observed_at`, `position_qty`, `cash` |
+| Each fill | `account_ref`, `symbol`, `currency`, `fill_id`, `broker_order_id`, `side` set to `buy`, `executed_at`, `qty`, `price`, `fee` |
+
+Supply timezone-aware timestamps, stable activity IDs, and decimal strings
+for amounts. Use an explicit zero fee only when the source confirms it.
+Supply balances on a trade-date cash basis and preserve execution precision.
+The tool sorts fills, deduplicates matching activity IDs, and rejects
+conflicting copies. It compares cumulative quantity with the order snapshot,
+checks each fill against the limit, and shows the expected and observed
+position and cash with exact differences. Source authentication, settlement
+timing, unrelated activity, and multi-order accounting require separate evidence.
