@@ -2,7 +2,7 @@
 import argparse
 import json
 import os
-from urllib.request import Request, urlopen
+from http.client import HTTPSConnection, HTTPException
 
 from grid_lab import EXAMPLE, connection_threshold as solve, investigate_omissions, market_demo
 
@@ -88,10 +88,17 @@ def model_choice(context, model):
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         raise ValueError("set OPENAI_API_KEY for model-assisted planning")
-    request = Request("https://api.openai.com/v1/responses", json.dumps(body).encode(),
-                      {"Authorization": "Bearer " + key, "Content-Type": "application/json"})
-    with urlopen(request, timeout=60) as response:
+    connection = HTTPSConnection("api.openai.com", timeout=60)
+    try:
+        connection.request("POST", "/v1/responses", body=json.dumps(body).encode(),
+                           headers={"Authorization": "Bearer " + key,
+                                    "Content-Type": "application/json"})
+        response = connection.getresponse()
+        if not 200 <= response.status < 300:
+            raise ValueError(f"planner endpoint returned HTTP {response.status}")
         data = json.load(response)
+    finally:
+        connection.close()
     texts = [part["text"] for item in data.get("output", [])
              for part in item.get("content", []) if part.get("type") == "output_text"]
     if data.get("status") != "completed" or len(texts) != 1:
@@ -140,6 +147,6 @@ if __name__ == "__main__":
     args = cli.parse_args()
     try:
         report = investigate(args.fixture, (lambda p: model_choice(p, args.model)) if args.model else None)
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, HTTPException, ValueError, KeyError, TypeError) as exc:
         cli.exit(1, f"Investigation stopped: {type(exc).__name__}: {exc}\n")
     print(json.dumps(report, indent=2))

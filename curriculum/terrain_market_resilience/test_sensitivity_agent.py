@@ -34,8 +34,25 @@ class AgentTests(unittest.TestCase):
         response = {"status": "completed", "output": [{"content": [{
             "type": "output_text", "text": '{"tool":"adjacency"}'}]}]}
         with patch.dict("os.environ", OPENAI_API_KEY="test"), patch.object(
-                agent, "urlopen", return_value=io.BytesIO(json.dumps(response).encode())) as call:
+                agent, "HTTPSConnection") as connect:
+            connection = connect.return_value
+            reply = io.BytesIO(json.dumps(response).encode())
+            reply.status = 200
+            connection.getresponse.return_value = reply
             self.assertEqual(agent.model_choice({"fixture": "terrain"}, "example"), "adjacency")
-            request = json.loads(call.call_args.args[0].data)
+            connect.assert_called_once_with("api.openai.com", timeout=60)
+            self.assertEqual(connection.request.call_args.args, ("POST", "/v1/responses"))
+            request = json.loads(connection.request.call_args.kwargs["body"])
             self.assertFalse(request["store"])
             self.assertEqual(request["model"], "example")
+            connection.close.assert_called_once()
+
+    def test_planner_rejects_redirect(self):
+        with patch.dict("os.environ", OPENAI_API_KEY="test"), patch.object(
+                agent, "HTTPSConnection") as connect:
+            connection = connect.return_value
+            connection.getresponse.return_value.status = 307
+            with self.assertRaisesRegex(ValueError, "HTTP 307"):
+                agent.model_choice({}, "example")
+            connection.request.assert_called_once()
+            connection.close.assert_called_once()
