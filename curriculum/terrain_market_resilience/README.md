@@ -81,3 +81,7 @@ From this lab folder, run `python sensitivity_agent.py terrain` or `python sensi
 3. The planner selects one bounded experiment. The offline rule tests corner connectivity for tied leaders; for a unique leader it removes the top two observations together. The AI planner chooses between those same experiments based on the verified packet.
 4. The agent executes the chosen experiment locally and checks its result by flooding again. Read the baseline and single-cell ranking under `study`, then the actual masked cells and resulting thresholds under `follow_up`. A null threshold means disconnected. Coordinates use zero-based row and column.
 5. The packet ends with a question for a human reviewer. Record a source for the requested measurements or challenge the adjacency assumption before drawing conclusions about the world.
+
+## Optional final-week capstone
+
+[Reason across an octillion omission masks](OMISSION_CAPSTONE.md) using a 64-case counterexample search, a proof for nested path sets, and a missing-as-zero control. Run `python omission_capstone.py` from this folder.
