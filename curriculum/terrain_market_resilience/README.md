@@ -71,3 +71,13 @@ Ask the learner to predict the answer before opening the omission ranking. Coord
 **How should we report a disconnection?** Say “No path through the remaining observed cells under the stated adjacency rule.” Ask which missing observations could bridge the gap and whether corner contact is meaningful in this setting.
 
 **What evidence would change the conclusion?** Obtain an independent estimate for the 7 bp cost at (1, 2), replace that assumption, and rerun the full ranking. Record whether the same scenario remains the first review priority.
+
+## Sensitivity investigation agent
+
+From this lab folder, run `python sensitivity_agent.py terrain` or `python sensitivity_agent.py market`. The default rule-based planner runs offline. To use an AI planner, set `OPENAI_API_KEY` outside the repository and add `--model MODEL_ID` using a Responses API model with structured outputs. This sends the synthetic study to the provider and can incur one model call per investigation.
+
+1. The agent masks each eligible cell and computes the full ranking.
+2. A separate threshold flood checks the baseline, every omission, all ties and any disconnections. A disagreement stops the run before planning.
+3. The planner selects one bounded experiment. The offline rule tests corner connectivity for tied leaders; for a unique leader it removes the top two observations together. The AI planner chooses between those same experiments based on the verified packet.
+4. The agent executes the chosen experiment locally and checks its result by flooding again. Read the baseline and single-cell ranking under `study`, then the actual masked cells and resulting thresholds under `follow_up`. A null threshold means disconnected. Coordinates use zero-based row and column.
+5. The packet ends with a question for a human reviewer. Record a source for the requested measurements or challenge the adjacency assumption before drawing conclusions about the world.
