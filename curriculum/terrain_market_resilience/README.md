@@ -54,4 +54,20 @@ Run the lab as above and inspect the omission study in the JSON report. It masks
 
 Before viewing the ranking, predict the most influential cell. Compare your prediction with the complete ranking, choose a flagged assumption, and record what independent measurement or adjacency check would resolve it. This exhaustive single-omission exercise is intended for small synthetic grids. A high rank measures sensitivity within the fixture; field accuracy and market outcomes require independent observations.
 
-Instructor key: on the terrain fixture, either (1, 1) or (1, 3) raises the pass from 140 m to 160 m. Both outrank the central saddle omission (150 m). In the market fixture, removing (1, 2), the 7 bp cost at 6 bp spread and 200 shares of depth, raises the threshold from 8 to 15 bp. Removing the centre raises it to 14 bp.
+## Reviewer questions and example answers
+
+Ask the learner to predict the answer before opening the omission ranking. Coordinates are zero-based (row, column). Start with edge neighbours only.
+
+**Which cost assumption should we check first?** At (1, 2), the fixture assumes a cost of 7 basis points for a 100-share order at 6 bp spread and 200 shares of available depth. Masking it raises the threshold from 8 to 15 bp.
+
+**Why choose that cell over the centre?** Masking the centre at (1, 1) raises the threshold to 14 bp. Comparing every eligible cell gives us a reason to investigate (1, 2) first.
+
+**Did execution costs actually rise by seven basis points?** The seven-point change occurred in the synthetic path calculation. To assess the cost assumption, ask for independently observed costs for comparable order sizes, spreads and depths.
+
+**Why is 140 m the lowest crossing?** The middle row gives a route of 100 → 120 → 140 → 125 → 110 m. Every route crosses the middle column. Its lowest cell is 140 m, so no route opens earlier.
+
+**Which location deserves a survey first?** The 120 m western approach at (1, 1) and the 125 m eastern approach at (1, 3) tie. Masking either raises the crossing to 160 m. Masking the 140 m saddle raises it to 150 m. Ask which approach has poorer survey coverage and record the evidence used to break the tie.
+
+**How should we report a disconnection?** Say “No path through the remaining observed cells under the stated adjacency rule.” Ask which missing observations could bridge the gap and whether corner contact is meaningful in this setting.
+
+**What evidence would change the conclusion?** Obtain an independent estimate for the 7 bp cost at (1, 2), replace that assumption, and rerun the full ranking. Record whether the same scenario remains the first review priority.
