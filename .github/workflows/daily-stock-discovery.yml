@@ -17,6 +17,7 @@ jobs:
     name: Scan predefined watchlist (GET only)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: paper-trading
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -28,9 +29,20 @@ jobs:
           python-version: '3.12'
       - name: Run read-only stock discovery
         env:
+          PAPER_KEY: ${{ secrets.ALPACA_PAPER_API_KEY }}
+          PAPER_SECRET: ${{ secrets.ALPACA_PAPER_API_SECRET }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-        run: python stock_discovery.py --output-dir stock-discovery-output
+        run: |
+          if [[ -n "$PAPER_KEY" || -n "$PAPER_SECRET" ]]; then
+            if [[ -z "$PAPER_KEY" || -z "$PAPER_SECRET" ]]; then
+              echo "::error::Configure both ALPACA_PAPER_API_KEY and ALPACA_PAPER_API_SECRET in the paper-trading environment."
+              exit 1
+            fi
+            export ALPACA_API_KEY="$PAPER_KEY" ALPACA_API_SECRET="$PAPER_SECRET"
+          fi
+          unset PAPER_KEY PAPER_SECRET
+          python stock_discovery.py --output-dir stock-discovery-output
       - name: Add watchlist to job summary
         if: success()
         run: cat stock-discovery-output/watchlist.md >> "$GITHUB_STEP_SUMMARY"
