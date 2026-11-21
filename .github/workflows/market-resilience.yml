@@ -22,3 +22,8 @@ jobs:
         run: |
           python -c "import json; from market_resilience_model import evaluate; s=json.load(open('examples/market_resilience/study.json')); json.dump({'study':s,'report':evaluate(s)},open('/tmp/market-bundle.json','w'))"
           python market_resilience_review.py /tmp/market-bundle.json --output /tmp/market-review.json
+      - name: Verify terrain and market connectivity curriculum
+        working-directory: curriculum/terrain_market_resilience
+        run: |
+          python -m unittest discover -v
+          python grid_lab.py both
