@@ -47,3 +47,11 @@ Start at the top left and finish at the bottom right. Before running the market 
 The lab models a finite grid and produces connectivity evidence. Geographic accuracy and market performance need separate observations. Automation checks the calculation; a human reviews whether the grid models a useful question.
 
 Terrain baseline adapted from [MathOS PR #101](https://github.com/tltmgnt/MathOS/pull/101).
+
+## Choose the next measurement
+
+Run the lab as above and inspect the omission study in the JSON report. It masks each observed cell except the two endpoints, restores it, and recalculates the threshold with the original adjacency. Coordinates are zero-based row and column. Loss of every observed path ranks first, followed by the largest increase in the original units. The report lists all tied leaders in row order. When all changes are zero it suggests investigating a plausible joint omission. If the baseline is already disconnected it asks which missing observations could bridge the gap.
+
+Before viewing the ranking, predict the most influential cell. Compare your prediction with the complete ranking, choose a flagged assumption, and record what independent measurement or adjacency check would resolve it. This exhaustive single-omission exercise is intended for small synthetic grids. A high rank measures sensitivity within the fixture; field accuracy and market outcomes require independent observations.
+
+Instructor key: on the terrain fixture, either (1, 1) or (1, 3) raises the pass from 140 m to 160 m. Both outrank the central saddle omission (150 m). In the market fixture, removing (1, 2), the 7 bp cost at 6 bp spread and 200 shares of depth, raises the threshold from 8 to 15 bp. Removing the centre raises it to 14 bp.

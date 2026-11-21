@@ -46,12 +46,52 @@ def connection_threshold(grid, start, end, *, diagonals=False):
     return None
 
 
+
+def investigate_omissions(grid, start, end, *, diagonals=False):
+    """Rank all single observed-cell omissions, holding endpoints and adjacency fixed."""
+    baseline = connection_threshold(grid, start, end, diagonals=diagonals)
+    report = {"baseline": baseline, "ranking": [], "review_cells": []}
+    if baseline is None:
+        report["review_question"] = "Which missing observations could connect the endpoints?"
+        return report
+
+    trial = [list(row) for row in grid]
+    for r, row in enumerate(grid):
+        for c, value in enumerate(row):
+            if value is None or (r, c) in (start, end):
+                continue
+            trial[r][c] = None
+            level = connection_threshold(trial, start, end, diagonals=diagonals)
+            trial[r][c] = value
+            report["ranking"].append({
+                "cell": [r, c], "value": value, "threshold_after": level,
+                "increase": None if level is None else level - baseline,
+            })
+
+    def severity(result):
+        return (result["threshold_after"] is None, result["increase"] or 0)
+
+    ranked = report["ranking"]
+    ranked.sort(key=severity, reverse=True)
+    if ranked and severity(ranked[0]) > (False, 0):
+        report["review_cells"] = [item["cell"] for item in ranked
+                                  if severity(item) == severity(ranked[0])]
+        report["review_question"] = (
+            "What independent measurement supports the listed cells, and are their "
+            "assumed neighbour connections justified?"
+        )
+    else:
+        report["review_question"] = "No single omission changed the threshold. Which joint omission is plausible?"
+    return report
+
+
 def terrain_demo():
     level = connection_threshold(EXAMPLE, (1, 0), (1, 4))
     masked = [list(row) for row in EXAMPLE]
     masked[1][2] = None
     return {"scope": "synthetic terrain", "elevations_m": EXAMPLE,
             "endpoints_row_col": [[1, 0], [1, 4]], "connectivity": 4,
+            "omission_study_m": investigate_omissions(EXAMPLE, (1, 0), (1, 4)),
             "merge_level_m": level, "younger_persistence_m": level - EXAMPLE[1][4],
             "without_saddle_m": connection_threshold(masked, (1, 0), (1, 4))}
 
@@ -68,6 +108,7 @@ def market_demo():
             "source": "hand-authored teaching fixture", "order_shares": 100,
             "row_spread_bps": [2, 6, 12], "column_depth_shares": [1000, 500, 200],
             "cost_bps": costs, "endpoints_row_col": [start, end], "connectivity": 4,
+            "omission_study_bps": investigate_omissions(costs, start, end),
             "threshold_bps": connection_threshold(costs, start, end),
             "without_center_bps": connection_threshold(missing_center, start, end),
             "without_middle_band_bps": connection_threshold(missing_band, start, end)}
