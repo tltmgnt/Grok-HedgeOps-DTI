@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "system_id": "MRA-X-TGA-2.0",
+  "name": "MRA-X 2.0 | TGA Research Intelligence Engine",
+  "full_designation": "Mathematical Research Agent–X with Topological Gap Analysis",
+  "short_label": "MRA-X | TGA Intelligence Engine",
+  "subtitle": "Evidence-Gated Mathematical Discovery, Structural Recovery, Verification and Research Energy Optimization",
+  "classification": "Adaptive Mathematical Research Intelligence and Verification System",
+  "core_principle": "Identify what is worth solving, determine what prevents its solution, characterize missing structural information, and optimize research energy toward independently verifiable mathematical advancement.",
+  "architecture_roles": [
+    "MRA-X 2.0",
+    "ResearchOS",
+    "TGA 2.0",
+    "TGA Recovery Engine (proposed)",
+    "TECT-X",
+    "MathOS",
+    "Research Energy Optimization"
+  ],
+  "architecture_target": {
+    "score": 10,
+    "scale_max": 10,
+    "kind": "design_target",
+    "certified": false
+  },
+  "development_status": "evidence_gated_research_prototype",
+  "certification_status": "pending_independent_validation",
+  "import_scope": "documentation_and_identity_only",
+  "reported_pilot_capabilities": {
+    "count": 6,
+    "total": 10,
+    "independently_verified": false
+  },
+  "reported_checks": {
+    "software": {
+      "passed": 13,
+      "total": 13
+    },
+    "finite_math": {
+      "passed": 10,
+      "total": 10
+    },
+    "scripted_model_calls": {
+      "early_stop": 4,
+      "baseline": 7
+    },
+    "automatic_theorem_promotions": 0,
+    "independently_reproduced": false
+  },
+  "mission_status": "reported_planned_stop",
+  "reopening_requires_new_falsifiable_hypothesis": true,
+  "open_problem_status": {
+    "P versus NP": "OPEN"
+  },
+  "specification": "README.md"
+}
